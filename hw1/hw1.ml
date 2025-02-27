@@ -7,7 +7,7 @@ let rec power x n = if n = 0 then 1 else x * power x (n - 1)
 let rec gcd m n = if m = 0 then n else gcd (n mod m) m
 
 let rec combi n k =
-  if k = 1 then n
+  if k = 0 then 1
   else if k > n - k then combi n (n - k)
   else combi n (k - 1) * (n - k + 1) / k
 
@@ -31,6 +31,7 @@ let rec postorder t =
 let rec max l =
   match l with
   | [] -> 0
+  | [ x ] -> x
   | x :: xt ->
       let t = max xt in
       if x > t then x else t
