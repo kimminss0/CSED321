@@ -5,7 +5,7 @@ type 'a tree = Leaf of 'a | Node of 'a tree * 'a * 'a tree
 (** Recursive functions **)
 
 let rec lrevrev xs =
-  let rec lrev ys = match ys with [] -> [] | y :: yt -> yt @ [ y ] in
+  let rec lrev ys = match ys with [] -> [] | y :: yt -> lrev yt @ [ y ] in
   match xs with [] -> [] | x :: xt -> lrevrev xt @ [ lrev x ]
 
 let rec lfoldl f acc l =
