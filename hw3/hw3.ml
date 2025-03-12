@@ -47,7 +47,8 @@ module VectorFn (Scal : SCALAR) : VECTOR with type elem = Scal.t = struct
     match List.nth_opt xs n with None -> raise VectorIllegal | Some x -> x
 
   let ( ++ ) xs ys =
-    if List.compare_lengths xs ys <> 0 then raise VectorIllegal else xs @ ys
+    if List.compare_lengths xs ys <> 0 then raise VectorIllegal
+    else List.map2 Scal.( ++ ) xs ys
 
   let ( == ) xs ys =
     if List.compare_lengths xs ys <> 0 then raise VectorIllegal else xs = ys
@@ -223,10 +224,7 @@ module Weight : SCALAR with type t = int = struct
 
   let ( ** ) x y =
     check_valid x y;
-    match (x, y) with
-    | -1, _ -> y
-    | _, -1 -> x
-    | _ -> min x y
+    match (x, y) with -1, _ -> y | _, -1 -> x | _ -> min x y
 
   let ( == ) x y =
     check_valid x y;
