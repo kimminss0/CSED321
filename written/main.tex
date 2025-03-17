@@ -1,4 +1,4 @@
-\documentclass[a4paper,10pt]{article}
+\documentclass[a4paper]{article}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{amsthm}
@@ -16,10 +16,6 @@
   AutoFakeSlant,
 ]
 
-\newcommand{\question}[1]{\textbf{Question \arabic{question}. }
-\addtocounter{question}{1}}
-\newcounter{question}[section]
-
 \begin{document}
 
 \title{CSED321 Assignment - \emph{Inductive Proofs}}
@@ -28,18 +24,16 @@
 
 \maketitle
 
-\setcounter{question}{1}
-\noindent
-\question{}
+\noindent\textbf{Question 1.}
 \begin{proof}
 	By rule induction on judgement \(s\; \mathsf{lparen}\).
-
+	\\[1em]
 	Case \AxiomC{}\RightLabel{\(Leps\)} \UnaryInfC{\(\epsilon\;
 		\mathsf{lparen}\)}\DisplayProof where \(s = \epsilon\):
 	\begin{flalign}
 		 & \epsilon\; \mathsf{mparen} & \tag*{by the rule \(Meps\)}
 	\end{flalign}
-
+	\\
 	Case \AxiomC{\(s_1\; \mathsf{lparen}\)} \AxiomC{\(s_2\; \mathsf{lparen}\)}
 	\RightLabel{\(Lseq\)} \BinaryInfC{\((s_1) s_2\; \mathsf{lparen}\)}
 	\DisplayProof where \(s = (s_1) s_2\):
@@ -54,20 +48,19 @@
 	\end{flalign}
 \end{proof}
 
-\noindent
-\question{}
+\noindent\textbf{Question 2.}
 \begin{proof}
 	By rule induction on judgement \(s'\; \mathsf{tparen}\).
-
+	\\[1em]
 	Case \AxiomC{}\RightLabel{\(Teps\)} \UnaryInfC{\(\epsilon\;
 		\mathsf{tparen}\)}\DisplayProof where \(s' = \epsilon\):
 	\begin{flalign}
-		 & s\; \mathsf{tparen}    & \tag*{assuption}                   \\
+		 & s\; \mathsf{tparen}    & \tag*{assumption}                  \\
 		 & s s' = s\epsilon = s   & \tag*{}                            \\
 		 & s s'\; \mathsf{tparen} & \tag*{from \(s\; \mathsf{tparen}\)
 			and \(s=s s'\)}
 	\end{flalign}
-
+	\\
 	Case \AxiomC{\(s_1\; \mathsf{tparen}\)} \AxiomC{\(s_2\; \mathsf{tparen}\)}
 	\RightLabel{\(Tseq\)} \BinaryInfC{\(s_1 (s_2)\; \mathsf{tparen}\)}
 	\DisplayProof where \(s' = s_1 (s_2)\):
@@ -89,17 +82,16 @@
 
 \end{proof}
 
-\noindent
-\question{}
+\noindent\textbf{Question 3.}
 \begin{proof}
 	By rule induction on judjement \(s\; \mathsf{mparen}\).
-
+	\\[1em]
 	Case \AxiomC{}\RightLabel{\(Meps\)} \UnaryInfC{\(\epsilon\;
 		\mathsf{mparen}\)}\DisplayProof where \(s = \epsilon\):
 	\begin{flalign}
 		 & \epsilon\; \mathsf{tparen} & \tag*{by the rule \(Teps\)}
 	\end{flalign}
-
+	\\
 	Case \AxiomC{\(s'\; \mathsf{mparen}\)} \RightLabel{\(Mpar\)}
 	\UnaryInfC{\((s')\; \mathsf{mparen}\)} \DisplayProof where \(s = (s')\):
 	\begin{flalign}
@@ -112,7 +104,7 @@
 		 & (s')\; \mathsf{tparen}          & \tag*{from \(\epsilon (s')\;
 			\mathsf{tparen}\) and \(\epsilon (s') = (s')\)}
 	\end{flalign}
-
+	\\
 	Case \AxiomC{\(s_1\; \mathsf{mparen}\)} \AxiomC{\(s_2\;
 		\mathsf{mparen}\)} \RightLabel{\(Mseq\)} \BinaryInfC{\(s_1 s_2\;
 		\mathsf{mparen}\)} \DisplayProof where \(s = s_1 s_2\):
