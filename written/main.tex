@@ -1,0 +1,125 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{datetime}
+\usepackage{lmodern}
+\usepackage{fontspec}
+\usepackage{kotex}
+\usepackage{bussproofs}
+
+\setmainhangulfont{Noto Serif CJK KR}[
+  UprightFont=* Light,
+  BoldFont=* Bold,
+  Script=Hangul,
+  Language=Korean,
+  AutoFakeSlant,
+]
+
+\newcommand{\question}[1]{\textbf{Question \arabic{question}. }
+\addtocounter{question}{1}}
+\newcounter{question}[section]
+
+\begin{document}
+
+\title{CSED321 Assignment - \emph{Inductive Proofs}}
+\author{김민서(20220826)}
+\date{\today, \currenttime}
+
+\maketitle
+
+\setcounter{question}{1}
+\noindent
+\question{}
+\begin{proof}
+	By rule induction on judgement \(s\; \mathsf{lparen}\).
+
+	Case \AxiomC{}\RightLabel{\(Leps\)} \UnaryInfC{\(\epsilon\;
+		\mathsf{lparen}\)}\DisplayProof where \(s = \epsilon\):
+	\begin{flalign}
+		 & \epsilon\; \mathsf{mparen} & \tag*{by the rule \(Meps\)}
+	\end{flalign}
+
+	Case \AxiomC{\(s_1\; \mathsf{lparen}\)} \AxiomC{\(s_2\; \mathsf{lparen}\)}
+	\RightLabel{\(Lseq\)} \BinaryInfC{\((s_1) s_2\; \mathsf{lparen}\)}
+	\DisplayProof where \(s = (s_1) s_2\):
+	\begin{flalign}
+		 & s_1\; \mathsf{mparen}      & \tag*{by the induction hypothesis on
+		\(s_1\; \mathsf{lparam}\)}                                           \\
+		 & s_2\; \mathsf{mparen}      & \tag*{by the induction hypothesis on
+		\(s_2\; \mathsf{lparam}\)}                                           \\
+		 & (s_1)\; \mathsf{mparen}    & \tag*{by the rule \(Mpar\)}          \\
+		 & (s_1)s_2\; \mathsf{mparen} & \tag*{by the rule \(Mseq\) with
+			\((s_1)\; \mathsf{mparen}\) and \(s_2\; \mathsf{mparen}\)}
+	\end{flalign}
+\end{proof}
+
+\noindent
+\question{}
+\begin{proof}
+	By rule induction on judgement \(s'\; \mathsf{tparen}\).
+
+	Case \AxiomC{}\RightLabel{\(Teps\)} \UnaryInfC{\(\epsilon\;
+		\mathsf{tparen}\)}\DisplayProof where \(s' = \epsilon\):
+	\begin{flalign}
+		 & s\; \mathsf{tparen}    & \tag*{assuption}                   \\
+		 & s s' = s\epsilon = s   & \tag*{}                            \\
+		 & s s'\; \mathsf{tparen} & \tag*{from \(s\; \mathsf{tparen}\)
+			and \(s=s s'\)}
+	\end{flalign}
+
+	Case \AxiomC{\(s_1\; \mathsf{tparen}\)} \AxiomC{\(s_2\; \mathsf{tparen}\)}
+	\RightLabel{\(Tseq\)} \BinaryInfC{\(s_1 (s_2)\; \mathsf{tparen}\)}
+	\DisplayProof where \(s' = s_1 (s_2)\):
+	\begin{flalign}
+		 & s\; \mathsf{tparen}
+		 & \tag*{assumption}                                                      \\
+		 & s s' = s s_1 (s_2)
+		 & \tag*{}                                                                \\
+		 & \text{``\(s\; \mathsf{tparen}\) implies \(s s_1\; \mathsf{tparen}\)"}
+		 & \tag*{by the induction hypothesis on \(s_1\; \mathsf{tparen}\)}        \\
+		 & s s_1\; \mathsf{tparen}
+		 & \tag*{from the assumption \(s\; \mathsf{tparen}\)}                     \\
+		 & s s_1 (s_2)\; \mathsf{tparen}
+		 & \tag*{by the rule \(Tseq\) with \(s s_1\; \mathsf{tparen}\)
+		and \(s_2\; \mathsf{tparen}\)}                                            \\
+		 & s s'\; \mathsf{tparen}
+		 & \tag*{from \(s s_1 (s_2) \mathsf{tparen}\) and \(s s' = s s_1 (s_2)\)}
+	\end{flalign}
+
+\end{proof}
+
+\noindent
+\question{}
+\begin{proof}
+	By rule induction on judjement \(s\; \mathsf{mparen}\).
+
+	Case \AxiomC{}\RightLabel{\(Meps\)} \UnaryInfC{\(\epsilon\;
+		\mathsf{mparen}\)}\DisplayProof where \(s = \epsilon\):
+	\begin{flalign}
+		 & \epsilon\; \mathsf{tparen} & \tag*{by the rule \(Teps\)}
+	\end{flalign}
+
+	Case \AxiomC{\(s'\; \mathsf{mparen}\)} \RightLabel{\(Mpar\)}
+	\UnaryInfC{\((s')\; \mathsf{mparen}\)} \DisplayProof where \(s = (s')\):
+	\begin{flalign}
+		 & \epsilon\; \mathsf{tparen}      & \tag*{by the rule \(Teps\)}        \\
+		 & s'\; \mathsf{tparen}            & \tag*{by the induction hypothesis} \\
+		 & \epsilon (s') = (s')            & \tag*{}                            \\
+		 & \epsilon (s')\; \mathsf{tparen} & \tag*{by the rule \(Tseq\)
+			with \(\epsilon\; \mathsf{tparen}\) and \(s'\;
+		\mathsf{tparen}\)}                                                      \\
+		 & (s')\; \mathsf{tparen}          & \tag*{from \(\epsilon (s')\;
+			\mathsf{tparen}\) and \(\epsilon (s') = (s')\)}
+	\end{flalign}
+
+	Case \AxiomC{\(s_1\; \mathsf{mparen}\)} \AxiomC{\(s_2\;
+		\mathsf{mparen}\)} \RightLabel{\(Mseq\)} \BinaryInfC{\(s_1 s_2\;
+		\mathsf{mparen}\)} \DisplayProof where \(s = s_1 s_2\):
+	\begin{flalign}
+		 & s_1\; \mathsf{tparen}     & \tag*{by the induction hypothesis on \(s_1\; \mathsf{mparen}\)} \\
+		 & s_2\; \mathsf{tparen}     & \tag*{by the induction hypothesis on \(s_2\; \mathsf{mparen}\)} \\
+		 & s_1 s_2\; \mathsf{tparen} & \tag*{by Lemma 1.2}
+	\end{flalign}
+\end{proof}
+\end{document}
