@@ -21,25 +21,36 @@ let rec getFreeVariables = function
   | Uml.Lam (x, e) -> VarSet.remove x (getFreeVariables e)
   | Uml.App (e1, e2) -> VarSet.union (getFreeVariables e1) (getFreeVariables e2)
 
-let rec substitute e' x = function
-  | Uml.Var v -> if v = x then e' else Uml.Var v
-  | Uml.App (e1, e2) -> Uml.App (substitute e' x e1, substitute e' x e2)
-  | Uml.Lam (y, e) -> (
-      if x = y then Uml.Lam (x, e)
-      else
-        match VarSet.find_opt y (getFreeVariables e') with
-        | None -> Uml.Lam (y, substitute e' x e)
-        | Some _ ->
-            let z = getFreshVariable y in
-            Uml.Lam (z, substitute e' x (substitute (Uml.Var z) y e)))
+let swap v v' =
+  let swapVar u = if u = v then v' else if u = v' then v else u in
+  let rec swap' = function
+    | Uml.Var u -> Uml.Var (swapVar u)
+    | Uml.Lam (x, e) -> Uml.Lam (swapVar x, swap' e)
+    | Uml.App (e1, e2) -> Uml.App (swap' e1, swap' e2)
+  in
+  swap'
+
+let substitute e' x =
+  let rec substitute' = function
+    | Uml.Var v -> if v = x then e' else Uml.Var v
+    | Uml.App (e1, e2) -> Uml.App (substitute' e1, substitute' e2)
+    | Uml.Lam (y, e) as v -> (
+        if x = y then v
+        else
+          match VarSet.find_opt y (getFreeVariables e') with
+          | None -> Uml.Lam (y, substitute' e)
+          | Some _ ->
+              let z = getFreshVariable y in
+              Uml.Lam (z, substitute' (swap y z e)))
+  in
+  substitute'
 
 (*
  * implement a single step with reduction using the call-by-value strategy.
  *)
 let rec stepv = function
-  | Uml.App (Uml.Lam (x, e), Uml.Lam (y, e')) ->
-      substitute (Uml.Lam (y, e')) x e
-  | Uml.App (Uml.Lam (x, e), e2) -> Uml.App (Uml.Lam (x, e), stepv e2)
+  | Uml.App (Uml.Lam (x, e), (Uml.Lam _ as v)) -> substitute v x e
+  | Uml.App ((Uml.Lam _ as f), e) -> Uml.App (f, stepv e)
   | Uml.App (e1, e2) -> Uml.App (stepv e1, e2)
   | _ -> raise Stuck
 
