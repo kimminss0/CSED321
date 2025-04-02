@@ -20,7 +20,8 @@
 
 \title{CSED321 Assignment - \emph{Inductive Proofs}}
 \author{김민서(20220826)}
-\date{\today, \currenttime}
+\newdate{date}{18}{03}{2025}
+\date{\displaydate{date}}
 
 \maketitle
 
@@ -50,6 +51,8 @@
 
 \noindent\textbf{Question 2.}
 \begin{proof}
+	We shall show that if \(s'\; \mathsf{tparen}\) then \(s\; \mathsf{tparen}\)
+	implies \(s s'\; \mathsf{tparen}\).
 	By rule induction on judgement \(s'\; \mathsf{tparen}\).
 	\\[1em]
 	Case \AxiomC{}\RightLabel{\(Teps\)} \UnaryInfC{\(\epsilon\;
