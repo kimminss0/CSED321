@@ -32,16 +32,16 @@ let swap v v' =
 
 let substitute e' x =
   let rec substitute' = function
-    | Uml.Var v -> if v = x then e' else Uml.Var v
+    | Uml.Var v when v = x -> e'
+    | Uml.Var _ as v -> v
     | Uml.App (e1, e2) -> Uml.App (substitute' e1, substitute' e2)
-    | Uml.Lam (y, e) as v -> (
-        if x = y then v
-        else
-          match VarSet.find_opt y (getFreeVariables e') with
-          | None -> Uml.Lam (y, substitute' e)
-          | Some _ ->
-              let z = getFreshVariable y in
-              Uml.Lam (z, substitute' (swap y z e)))
+    | Uml.Lam (y, e) as v when x = y -> v
+    | Uml.Lam (y, e) -> (
+        match VarSet.find_opt y (getFreeVariables e') with
+        | None -> Uml.Lam (y, substitute' e)
+        | Some _ ->
+            let z = getFreshVariable y in
+            Uml.Lam (z, substitute' (swap y z e)))
   in
   substitute'
 
