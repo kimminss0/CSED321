@@ -26,15 +26,57 @@ let value2exp _ = raise NotImplemented
 
 (* Problem 1. 
  * texp2exp : Tml.texp -> Tml.exp *)
-let texp2exp _ = raise NotImplemented
+let texp2exp te =
+  let rec findFreeVar te cxt =
+    match te with
+    | Tvar v -> if List.exists (fun v' -> v' = v) cxt then cxt else cxt @ [ v ]
+    | Tlam (v, _, te) | Tfix (v, _, te) -> findFreeVar te (v :: cxt) |> List.tl
+    | Tapp (te1, te2) | Tpair (te1, te2) ->
+        cxt |> findFreeVar te2 |> findFreeVar te1
+    | Tfst te | Tsnd te -> findFreeVar te cxt
+    | Tinl (te, _) | Tinr (te, _) -> findFreeVar te cxt
+    | Tcase (te, v1, te1, v2, te2) ->
+        cxt |> List.cons v2 |> findFreeVar te2 |> List.tl |> List.cons v1
+        |> findFreeVar te1 |> List.tl |> findFreeVar te
+    | Tifthenelse (te, te1, te2) ->
+        cxt |> findFreeVar te2 |> findFreeVar te1 |> findFreeVar te
+    | Tnum _ -> cxt
+    | Teunit | Ttrue | Tfalse | Tplus | Tminus | Teq -> cxt
+  in
+  let rec texp2exp' cxt = function
+    | Tvar v -> Ind (cxt |> List.mapi (fun idx v -> (v, idx)) |> List.assoc v)
+    | Tlam (v, _, te) -> Lam (texp2exp' (v :: cxt) te)
+    | Tapp (te1, te2) -> App (texp2exp' cxt te1, texp2exp' cxt te2)
+    | Tpair (te1, te2) -> Pair (texp2exp' cxt te1, texp2exp' cxt te2)
+    | Tfst te -> Fst (texp2exp' cxt te)
+    | Tsnd te -> Snd (texp2exp' cxt te)
+    | Teunit -> Eunit
+    | Tinl (te, _) -> Inl (texp2exp' cxt te)
+    | Tinr (te, _) -> Inr (texp2exp' cxt te)
+    | Tcase (te, v1, te1, v2, te2) ->
+        Case
+          ( texp2exp' cxt te,
+            texp2exp' (v1 :: cxt) te1,
+            texp2exp' (v2 :: cxt) te2 )
+    | Tfix (v, _, te) -> Fix (texp2exp' (v :: cxt) te)
+    | Ttrue -> True
+    | Tfalse -> False
+    | Tifthenelse (te, te1, te2) ->
+        Ifthenelse (texp2exp' cxt te, texp2exp' cxt te1, texp2exp' cxt te2)
+    | Tnum n -> Num n
+    | Tplus -> Plus
+    | Tminus -> Minus
+    | Teq -> Eq
+  in
+  texp2exp' (findFreeVar te []) te
 
 (* Problem 2. 
  * step1 : Tml.exp -> Tml.exp *)
-let rec step1 _ = raise NotImplemented
+let rec step1 _ = raise Stuck
 
 (* Problem 3. 
  * step2 : state -> state *)
-let step2 _ = raise NotImplemented
+let step2 _ = raise Stuck
 
 (* exp2string : Tml.exp -> string *)
 let rec exp2string exp =
