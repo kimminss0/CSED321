@@ -17,8 +17,6 @@ and env = Heap.loc list
 and value =
   | Vclosure of env * exp
   | Veunit
-  | Vinl of exp
-  | Vinr of exp
   | Vtrue
   | Vfalse
   | Vnum of int
@@ -198,8 +196,7 @@ let step2 = function
       | Fst e -> Anal_ST (heap, stack @@ Ffst, e, env)
       | Snd e -> Anal_ST (heap, stack @@ Fsnd, e, env)
       | Eunit -> Return_ST (heap, stack, Veunit)
-      | Inl e -> Return_ST (heap, stack, Vinl e)
-      | Inr e -> Return_ST (heap, stack, Vinr e)
+      | Inl _ | Inr _ -> Return_ST (heap, stack, Vclosure (env, exp))
       | Case (e, e1, e2) -> Anal_ST (heap, stack @@ Fcase (env, e1, e2), e, env)
       | Fix e ->
           let heap', loc = Heap.allocate heap (Delayed (exp, env)) in
@@ -227,28 +224,28 @@ let step2 = function
               Anal_ST (heap, stack', e1, env')
           | Fsnd, Vclosure (env', Pair (e1, e2)) ->
               Anal_ST (heap, stack', e2, env')
-          | Fcase (env, e1, e2), Vinl e ->
-              let heap', loc = Heap.allocate heap (Delayed (e, env)) in
+          | Fcase (env, e1, e2), Vclosure (env', Inl e) ->
+              let heap', loc = Heap.allocate heap (Delayed (e, env')) in
               Anal_ST (heap', stack', e1, loc :: env)
-          | Fcase (env, e1, e2), Vinr e ->
-              let heap', loc = Heap.allocate heap (Delayed (e, env)) in
+          | Fcase (env, e1, e2), Vclosure (env', Inr e) ->
+              let heap', loc = Heap.allocate heap (Delayed (e, env')) in
               Anal_ST (heap', stack', e2, loc :: env)
           | Fifthenelse (env, e1, e2), Vtrue -> Anal_ST (heap, stack', e1, env)
           | Fifthenelse (env, e1, e2), Vfalse -> Anal_ST (heap, stack', e2, env)
           | Fplus, Vclosure (env', Pair (e1, e2)) ->
-              Anal_ST (heap, stack @@ Fplus_Pair1 (env', e2), e1, env')
+              Anal_ST (heap, stack' @@ Fplus_Pair1 (env', e2), e1, env')
           | Fplus_Pair1 (env, e2), Vnum n1 ->
-              Anal_ST (heap, stack @@ Fplus_Pair2 n1, e2, env)
+              Anal_ST (heap, stack' @@ Fplus_Pair2 n1, e2, env)
           | Fplus_Pair2 n1, Vnum n2 -> Return_ST (heap, stack', Vnum (n1 + n2))
           | Fminus, Vclosure (env', Pair (e1, e2)) ->
-              Anal_ST (heap, stack @@ Fminus_Pair1 (env', e2), e1, env')
+              Anal_ST (heap, stack' @@ Fminus_Pair1 (env', e2), e1, env')
           | Fminus_Pair1 (env, e2), Vnum n1 ->
-              Anal_ST (heap, stack @@ Fminus_Pair2 n1, e2, env)
+              Anal_ST (heap, stack' @@ Fminus_Pair2 n1, e2, env)
           | Fminus_Pair2 n1, Vnum n2 -> Return_ST (heap, stack', Vnum (n1 - n2))
           | Feq, Vclosure (env', Pair (e1, e2)) ->
-              Anal_ST (heap, stack @@ Feq_Pair1 (env', e2), e1, env')
+              Anal_ST (heap, stack' @@ Feq_Pair1 (env', e2), e1, env')
           | Feq_Pair1 (env, e2), Vnum n1 ->
-              Anal_ST (heap, stack @@ Feq_Pair2 n1, e2, env)
+              Anal_ST (heap, stack' @@ Feq_Pair2 n1, e2, env)
           | Feq_Pair2 n1, Vnum n2 ->
               Return_ST (heap, stack', if n1 = n2 then Vtrue else Vfalse)
           | _ -> raise Stuck))
@@ -293,8 +290,6 @@ let state2string st =
   and value2string = function
     | Vclosure (env, exp) -> "[" ^ env2string env ^ ", " ^ exp2string exp ^ "]"
     | Veunit -> "()"
-    | Vinl e -> "inl " ^ exp2string e
-    | Vinr e -> "inr " ^ exp2string e
     | Vtrue -> "true"
     | Vfalse -> "false"
     | Vnum n -> "<" ^ string_of_int n ^ ">"
