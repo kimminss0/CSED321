@@ -12,17 +12,51 @@ and state =
   | Return_ST of stoval Heap.heap * stack * value
 
 (* Define your own datatypes *)
-and env = NOT_IMPLEMENT_ENV
-and value = NOT_IMPLEMENT_VALUE
-and frame = NOT_IMPLEMENT_FRAME
+and env = Heap.loc list
+
+and value =
+  | Vclosure of env * exp
+  | Veunit
+  | Vinl of exp
+  | Vinr of exp
+  | Vtrue
+  | Vfalse
+  | Vnum of int
+  | Vplus
+  | Vminus
+  | Veq
+
+and frame =
+  | FheapRef of Heap.loc
+  | Fapp of env * exp
+  | Ffst
+  | Fsnd
+  | Fcase of env * exp * exp
+  | Fifthenelse of env * exp * exp
+  | Fplus
+  | Fplus_Pair1 of env * exp
+  | Fplus_Pair2 of int
+  | Fminus
+  | Fminus_Pair1 of env * exp
+  | Fminus_Pair2 of int
+  | Feq
+  | Feq_Pair1 of env * exp
+  | Feq_Pair2 of int
+
+let ( @@ ) stack frame = Frame_SK (stack, frame)
 
 (* Define your own empty environment *)
-let emptyEnv = NOT_IMPLEMENT_ENV
+let emptyEnv = []
 
 (* Implement the function value2exp : value -> Tml.exp
  * Warning : If you give wrong implementation of this function,
  *           you wiil receive no credit for the entire third part!  *)
-let value2exp _ = raise NotImplemented
+let rec value2exp = function
+  | Veunit -> Eunit
+  | Vtrue -> True
+  | Vfalse -> False
+  | Vnum n -> Num n
+  | _ -> raise NotConvertible
 
 (* Problem 1. 
  * texp2exp : Tml.texp -> Tml.exp *)
@@ -144,7 +178,80 @@ let rec step1 = function
 
 (* Problem 3. 
  * step2 : state -> state *)
-let step2 _ = raise Stuck
+let step2 = function
+  | Anal_ST (heap, stack, exp, env) -> (
+      match exp with
+      | Ind x -> (
+          let loc =
+            env |> List.mapi (fun idx loc -> (idx, loc)) |> List.assoc x
+          in
+          match Heap.deref heap loc with
+          | Computed v -> Return_ST (heap, stack, v)
+          | Delayed (exp', env') ->
+              Anal_ST (heap, stack @@ FheapRef loc, exp', env'))
+      | Lam _ -> Return_ST (heap, stack, Vclosure (env, exp))
+      | App (Plus, e) -> Anal_ST (heap, stack @@ Fplus, e, env)
+      | App (Minus, e) -> Anal_ST (heap, stack @@ Fminus, e, env)
+      | App (Eq, e) -> Anal_ST (heap, stack @@ Feq, e, env)
+      | App (e1, e2) -> Anal_ST (heap, stack @@ Fapp (env, e2), e1, env)
+      | Pair _ -> Return_ST (heap, stack, Vclosure (env, exp))
+      | Fst e -> Anal_ST (heap, stack @@ Ffst, e, env)
+      | Snd e -> Anal_ST (heap, stack @@ Fsnd, e, env)
+      | Eunit -> Return_ST (heap, stack, Veunit)
+      | Inl e -> Return_ST (heap, stack, Vinl e)
+      | Inr e -> Return_ST (heap, stack, Vinr e)
+      | Case (e, e1, e2) -> Anal_ST (heap, stack @@ Fcase (env, e1, e2), e, env)
+      | Fix e ->
+          let heap', loc = Heap.allocate heap (Delayed (exp, env)) in
+          Anal_ST (heap', stack, e, loc :: env)
+      | True -> Return_ST (heap, stack, Vtrue)
+      | False -> Return_ST (heap, stack, Vfalse)
+      | Ifthenelse (e, e1, e2) ->
+          Anal_ST (heap, stack @@ Fifthenelse (env, e1, e2), e, env)
+      | Num n -> Return_ST (heap, stack, Vnum n)
+      | Plus -> Return_ST (heap, stack, Vplus)
+      | Minus -> Return_ST (heap, stack, Vminus)
+      | Eq -> Return_ST (heap, stack, Veq))
+  | Return_ST (heap, stack, v) -> (
+      match stack with
+      | Hole_SK -> raise Stuck
+      | Frame_SK (stack', frame) -> (
+          match (frame, v) with
+          | FheapRef loc, _ ->
+              let heap' = Heap.update heap loc (Computed v) in
+              Return_ST (heap', stack', v)
+          | Fapp (env, e2), Vclosure (env', Lam e) ->
+              let heap', loc = Heap.allocate heap (Delayed (e2, env)) in
+              Anal_ST (heap', stack', e, loc :: env')
+          | Ffst, Vclosure (env', Pair (e1, e2)) ->
+              Anal_ST (heap, stack', e1, env')
+          | Fsnd, Vclosure (env', Pair (e1, e2)) ->
+              Anal_ST (heap, stack', e2, env')
+          | Fcase (env, e1, e2), Vinl e ->
+              let heap', loc = Heap.allocate heap (Delayed (e, env)) in
+              Anal_ST (heap', stack', e1, loc :: env)
+          | Fcase (env, e1, e2), Vinr e ->
+              let heap', loc = Heap.allocate heap (Delayed (e, env)) in
+              Anal_ST (heap', stack', e2, loc :: env)
+          | Fifthenelse (env, e1, e2), Vtrue -> Anal_ST (heap, stack', e1, env)
+          | Fifthenelse (env, e1, e2), Vfalse -> Anal_ST (heap, stack', e2, env)
+          | Fplus, Vclosure (env', Pair (e1, e2)) ->
+              Anal_ST (heap, stack @@ Fplus_Pair1 (env', e2), e1, env')
+          | Fplus_Pair1 (env, e2), Vnum n1 ->
+              Anal_ST (heap, stack @@ Fplus_Pair2 n1, e2, env)
+          | Fplus_Pair2 n1, Vnum n2 -> Return_ST (heap, stack', Vnum (n1 + n2))
+          | Fminus, Vclosure (env', Pair (e1, e2)) ->
+              Anal_ST (heap, stack @@ Fminus_Pair1 (env', e2), e1, env')
+          | Fminus_Pair1 (env, e2), Vnum n1 ->
+              Anal_ST (heap, stack @@ Fminus_Pair2 n1, e2, env)
+          | Fminus_Pair2 n1, Vnum n2 -> Return_ST (heap, stack', Vnum (n1 - n2))
+          | Feq, Vclosure (env', Pair (e1, e2)) ->
+              Anal_ST (heap, stack @@ Feq_Pair1 (env', e2), e1, env')
+          | Feq_Pair1 (env, e2), Vnum n1 ->
+              Anal_ST (heap, stack @@ Feq_Pair2 n1, e2, env)
+          | Feq_Pair2 n1, Vnum n2 ->
+              Return_ST (heap, stack', if n1 = n2 then Vtrue else Vfalse)
+          | _ -> raise Stuck))
 
 (* exp2string : Tml.exp -> string *)
 let rec exp2string exp =
@@ -175,9 +282,70 @@ let rec exp2string exp =
 (* state2string : state -> string 
  * you may modify this function for debugging your code *)
 let state2string st =
+  let rec env2string env =
+    env
+    |> List.mapi (fun idx loc -> (loc, idx))
+    |> List.fold_left
+         (fun acc (loc, x) ->
+           acc ^ ", " ^ string_of_int x ^ "->" ^ string_of_int loc)
+         "."
+    |> fun str -> "{" ^ str ^ "}"
+  and value2string = function
+    | Vclosure (env, exp) -> "[" ^ env2string env ^ ", " ^ exp2string exp ^ "]"
+    | Veunit -> "()"
+    | Vinl e -> "inl " ^ exp2string e
+    | Vinr e -> "inr " ^ exp2string e
+    | Vtrue -> "true"
+    | Vfalse -> "false"
+    | Vnum n -> "<" ^ string_of_int n ^ ">"
+    | Vplus -> "+"
+    | Vminus -> "-"
+    | Veq -> "="
+  and heap2string h =
+    let stoval2string = function
+      | Computed v -> "computed(" ^ value2string v ^ ")"
+      | Delayed (exp, env) ->
+          "delayed(" ^ exp2string exp ^ ", " ^ env2string env ^ ")"
+    in
+    List.fold_right
+      (fun (loc, s) acc ->
+        acc ^ ", " ^ string_of_int loc ^ "->" ^ stoval2string s)
+      h "."
+  and stack2string =
+    let frame2string = function
+      | FheapRef loc -> "[" ^ string_of_int loc ^ "]"
+      | Fapp (env, exp) -> "_" ^ env2string env ^ " " ^ exp2string exp
+      | Ffst -> "fst _"
+      | Fsnd -> "snd _"
+      | Fcase (env, e1, e2) ->
+          "case _^{" ^ env2string env ^ "} of inl. " ^ exp2string e1
+          ^ " | inr. " ^ exp2string e2
+      | Fifthenelse (env, e1, e2) ->
+          "if _^{" ^ env2string env ^ "} then " ^ exp2string e1 ^ " else "
+          ^ exp2string e2
+      | Fplus -> "+ _"
+      | Fplus_Pair1 (env, e2) ->
+          "+ (_^{" ^ env2string env ^ "}, " ^ exp2string e2 ^ ")"
+      | Fplus_Pair2 n1 -> "+ (<" ^ string_of_int n1 ^ ">, _)"
+      | Fminus -> "- _"
+      | Fminus_Pair1 (env, e2) ->
+          "- (_^{" ^ env2string env ^ "}, " ^ exp2string e2 ^ ")"
+      | Fminus_Pair2 n1 -> "- (<" ^ string_of_int n1 ^ ">, _)"
+      | Feq -> "= _"
+      | Feq_Pair1 (env, e2) ->
+          "= (_^{" ^ env2string env ^ "}, " ^ exp2string e2 ^ ")"
+      | Feq_Pair2 n1 -> "= (<" ^ string_of_int n1 ^ ">, _)"
+    in
+    function
+    | Hole_SK -> "_"
+    | Frame_SK (stack, frame) -> stack2string stack ^ " ; " ^ frame2string frame
+  in
   match st with
-  | Anal_ST (_, _, exp, _) -> "Analysis : ???"
-  | Return_ST (_, _, _) -> "Return : ??? "
+  | Anal_ST (heap, stack, exp, env) ->
+      heap2string heap ^ " || " ^ stack2string stack ^ " >> " ^ exp2string exp
+      ^ " @ " ^ env2string env
+  | Return_ST (heap, stack, v) ->
+      heap2string heap ^ " || " ^ stack2string stack ^ " << " ^ value2string v
 
 (* ------------------------------------------------------------- *)
 let stepOpt1 e = try Some (step1 e) with Stuck -> None
