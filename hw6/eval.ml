@@ -256,7 +256,7 @@ let rec exp2string exp =
   | Ind x -> string_of_int x
   | Lam e -> "(lam. " ^ exp2string e ^ ")"
   | App (e1, e2) -> "(" ^ exp2string e1 ^ " " ^ exp2string e2 ^ ")"
-  | Pair (e1, e2) -> "(" ^ exp2string e1 ^ "," ^ exp2string e2 ^ ")"
+  | Pair (e1, e2) -> "(" ^ exp2string e1 ^ ", " ^ exp2string e2 ^ ")"
   | Fst e -> "(fst " ^ exp2string e ^ ")"
   | Snd e -> "(snd " ^ exp2string e ^ ")"
   | Eunit -> "()"
@@ -309,26 +309,26 @@ let state2string st =
   and stack2string =
     let frame2string = function
       | FheapRef loc -> "[" ^ string_of_int loc ^ "]"
-      | Fapp (env, exp) -> "_" ^ env2string env ^ " " ^ exp2string exp
+      | Fapp (env, exp) -> "_#" ^ env2string env ^ " " ^ exp2string exp
       | Ffst -> "fst _"
       | Fsnd -> "snd _"
       | Fcase (env, e1, e2) ->
-          "case _^{" ^ env2string env ^ "} of inl. " ^ exp2string e1
-          ^ " | inr. " ^ exp2string e2
+          "case _#" ^ env2string env ^ " of inl. " ^ exp2string e1 ^ " | inr. "
+          ^ exp2string e2
       | Fifthenelse (env, e1, e2) ->
-          "if _^{" ^ env2string env ^ "} then " ^ exp2string e1 ^ " else "
+          "if _#" ^ env2string env ^ " then " ^ exp2string e1 ^ " else "
           ^ exp2string e2
       | Fplus -> "+ _"
       | Fplus_Pair1 (env, e2) ->
-          "+ (_^{" ^ env2string env ^ "}, " ^ exp2string e2 ^ ")"
+          "+ (_#" ^ env2string env ^ ", " ^ exp2string e2 ^ ")"
       | Fplus_Pair2 n1 -> "+ (<" ^ string_of_int n1 ^ ">, _)"
       | Fminus -> "- _"
       | Fminus_Pair1 (env, e2) ->
-          "- (_^{" ^ env2string env ^ "}, " ^ exp2string e2 ^ ")"
+          "- (_#" ^ env2string env ^ ", " ^ exp2string e2 ^ ")"
       | Fminus_Pair2 n1 -> "- (<" ^ string_of_int n1 ^ ">, _)"
       | Feq -> "= _"
       | Feq_Pair1 (env, e2) ->
-          "= (_^{" ^ env2string env ^ "}, " ^ exp2string e2 ^ ")"
+          "= (_#" ^ env2string env ^ ", " ^ exp2string e2 ^ ")"
       | Feq_Pair2 n1 -> "= (<" ^ string_of_int n1 ^ ">, _)"
     in
     function
