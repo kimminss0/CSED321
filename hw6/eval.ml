@@ -217,9 +217,12 @@ let step2 = function
           | FheapRef loc, _ ->
               let heap' = Heap.update heap loc (Computed v) in
               Return_ST (heap', stack', v)
-          | Fapp (env, e2), Vclosure (env', Lam e) ->
-              let heap', loc = Heap.allocate heap (Delayed (e2, env)) in
-              Anal_ST (heap', stack', e, loc :: env')
+          | Fapp (env, e), Vclosure (env', Lam e') ->
+              let heap', loc = Heap.allocate heap (Delayed (e, env)) in
+              Anal_ST (heap', stack', e', loc :: env')
+          | Fapp (env, e), Vplus -> Anal_ST (heap, stack' @@ Fplus, e, env)
+          | Fapp (env, e), Vminus -> Anal_ST (heap, stack' @@ Fminus, e, env)
+          | Fapp (env, e), Veq -> Anal_ST (heap, stack' @@ Feq, e, env)
           | Ffst, Vclosure (env', Pair (e1, e2)) ->
               Anal_ST (heap, stack', e1, env')
           | Fsnd, Vclosure (env', Pair (e1, e2)) ->
