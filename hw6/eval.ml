@@ -73,8 +73,7 @@ let texp2exp te =
     | Tifthenelse (te, te1, te2) ->
         cxt |> findFreeVar te2 |> findFreeVar te1 |> findFreeVar te
     | Teunit | Ttrue | Tfalse | Tnum _ | Tplus | Tminus | Teq -> cxt
-  in
-  let rec texp2exp' cxt = function
+  and texp2exp' cxt = function
     | Tvar v -> Ind (cxt |> List.mapi (fun idx v -> (v, idx)) |> List.assoc v)
     | Tlam (v, _, te) -> Lam (texp2exp' (v :: cxt) te)
     | Tapp (te1, te2) -> App (texp2exp' cxt te1, texp2exp' cxt te2)
