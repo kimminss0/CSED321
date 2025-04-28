@@ -1,3 +1,3 @@
 # CSED321: Programming Language
 
-OCaml version: `4.x`
+OCaml version: `==4.05`
