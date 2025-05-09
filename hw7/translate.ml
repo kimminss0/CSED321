@@ -62,26 +62,95 @@ let rec loc2str l =
       else "R[" ^ string_of_int r ^ "]"
   | L_DREF (l, i) -> "DREF(" ^ loc2str l ^ ", " ^ string_of_int i ^ ")"
 
+let fail_label = labelNewStr "FAIL"
+
 (*
  * Generate code for Abstract Machine MACH 
  *)
-(* pat2code : Mach.label -> Mach.label - > loc -> Mono.pat -> Mach.code * venv *)
-let pat2code _ _ _ _ = raise NotImplemented
+(* pat2code : Mach.label -> Mach.label -> loc -> Mono.pat -> Mach.code * venv *)
+let pat2code saddr faddr l = function
+  | P_WILD | P_UNIT -> (cpre [ LABEL saddr ] code0, venv0)
+  | P_INT i ->
+      let code, rvalue = loc2rvalue l in
+      let code' = clist [ JMPNEQ (ADDR (CADDR faddr), rvalue, INT i) ] in
+      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+  | P_BOOL true ->
+      let code, rvalue = loc2rvalue l in
+      let code' =
+        clist
+          [
+            (* TODO: ensure that it is ok to use AX here; no side effects *)
+            NOT (LREG ax, rvalue);
+            JMPTRUE (ADDR (CADDR faddr), REG ax);
+          ]
+      in
+      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+  | P_BOOL false ->
+      let code, rvalue = loc2rvalue l in
+      let code' = clist [ JMPTRUE (ADDR (CADDR faddr), rvalue) ] in
+      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+  | P_VID vid -> raise NotImplemented
+  | P_VIDP (vid, patty) -> raise NotImplemented
+  | P_PAIR (patty1, patty2) -> raise NotImplemented
 
 (* patty2code : Mach.label -> Mach.label -> loc -> Mono.patty -> Mach.code * venv *)
-let patty2code _ _ _ _ = raise NotImplemented
+let patty2code saddr faddr l (PATTY (pat, _)) = pat2code saddr faddr l pat
 
 (* exp2code : env -> Mach.label -> Mono.exp -> Mach.code * Mach.rvalue *)
-let exp2code _ _ _ = raise NotImplemented
+let exp2code (env : env) (saddr : label) = function
+  | E_INT i -> (code0, INT i)
+  | E_BOOL b -> (code0, BOOL b)
+  | E_UNIT -> (code0, UNIT)
+  | E_PLUS -> raise NotImplemented
+  | E_MINUS -> raise NotImplemented
+  | E_MULT -> raise NotImplemented
+  | E_EQ -> raise NotImplemented
+  | E_NEQ -> raise NotImplemented
+  | E_VID vid -> raise NotImplemented
+  | E_FUN mrules -> raise NotImplemented
+  | E_APP (expty1, expty2) -> raise NotImplemented
+  | E_PAIR (expty1, expty2) -> raise NotImplemented
+  | E_LET (dec, expty) -> raise NotImplemented
 
 (* expty2code : env -> Mach.label -> Mono.expty -> Mach.code * Mach.rvalue *)
-let expty2code _ _ _ = raise NotImplemented
+let expty2code env saddr (EXPTY (exp, _)) = exp2code env saddr exp
 
 (* dec2code : env -> Mach.label -> Mono.dec -> Mach.code * env *)
-let dec2code _ _ _ = raise NotImplemented
+let dec2code env saddr = function
+  | D_VAL (patty, expty) ->
+      let venv, count = env in
+      let code1, rvalue =
+        expty2code env (labelNewLabel saddr "_VAL_EXP") expty
+      in
+      let code2 = clist [ MOVE (LREG ax, rvalue) ] in
+      let code3, venv' =
+        patty2code (labelNewLabel saddr "_VAL_PAT") fail_label (L_REG ax) patty
+      in
+      let env' = (Dict.merge venv venv', count) in
+      (cpre [ LABEL saddr ] code1 @@ code2 @@ code3, env')
+  | D_REC (patty, expty) -> raise NotImplemented
+  | D_DTYPE -> raise NotImplemented
 
-(* mrule2code : env -> Mach.label -> Mono.mrule -> Mach.code *)
-let mrule2code _ _ _ = raise NotImplemented
+(* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code *)
+let mrule2code env saddr faddr (M_RULE (patty, expty)) =
+  let venv, count = (env : env)
+  and code1, venv' =
+    patty2code (labelNewLabel saddr "_PAT") faddr (L_REG bx) patty
+  in
+  let env' = (Dict.merge venv venv', count)
+  and saddr' = labelNewLabel saddr "_EXP" in
+  let code2, rvalue = expty2code env' saddr' expty in
+  cpre [ LABEL saddr ] code1 @@ cpost code2 [ MOVE (LREG ax, rvalue); RETURN ]
 
 (* program2code : Mono.program -> Mach.code *)
-let program2code (dlist, et) = raise NotImplemented
+let program2code ((dlist, et) : Mono.program) =
+  let code1, env =
+    List.fold_left
+      (fun (code_acc, env_acc) dec ->
+        let code, env = dec2code env_acc (labelNewStr "DEC") dec in
+        (code_acc @@ code, env))
+      (code0, env0) dlist
+  in
+  let code2, rvalue = expty2code env (labelNewStr "PRGEXP") et in
+  let halt = clist [ HALT rvalue; LABEL fail_label; EXCEPTION ] in
+  cpre [ LABEL start_label ] code1 @@ code2 @@ halt
