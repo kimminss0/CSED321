@@ -31,6 +31,7 @@ let rec typing cxt = function
           if c1 = c2 then c1 else raise TypeError
       | _ -> raise TypeError)
   | Fix (v, a, e) when a = typing (extendContext cxt v a) e -> a
+  | Fix _ -> raise TypeError
   | True | False -> Bool
   | Ifthenelse (e, e1, e2) -> (
       match (typing cxt e, typing cxt e1, typing cxt e2) with
@@ -39,7 +40,6 @@ let rec typing cxt = function
   | Num _ -> Int
   | Plus | Minus -> Fun (Prod (Int, Int), Int)
   | Eq -> Fun (Prod (Int, Int), Bool)
-  | _ -> raise TypeError
 
 let typeOf e = typing (createEmptyContext ()) e
 let typeOpt e = try Some (typeOf e) with TypeError -> None
