@@ -67,7 +67,7 @@ let rec loc2str l =
       else "R[" ^ string_of_int r ^ "]"
   | L_DREF (l, i) -> "DREF(" ^ loc2str l ^ ", " ^ string_of_int i ^ ")"
 
-let dec_fail_label = labelNewStr "DEC_FAILURE"
+let match_fail_label = labelNewStr "MATCH_FAILURE"
 
 (*
  * Generate code for Abstract Machine MACH 
@@ -147,8 +147,52 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) = function
         ][@ocamlformat "disable"]
       in
       (code, REG ax)
-  | E_FUN mrules -> raise NotImplemented
-  | E_APP (expty1, expty2) -> raise NotImplemented
+  | E_FUN mrules ->
+      let fun_saddr = labelNewLabel saddr "_BEGIN_FUNC"
+      and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
+      let code1, _ =
+        List.fold_right
+          (fun mrule (code_acc, faddr) ->
+            let saddr' = labelNewLabel saddr "_MRULE" in
+            (mrule2code env saddr' faddr mrule @@ code_acc, saddr'))
+          mrules (code0, match_fail_label)
+      in
+      let code1' =
+        clist [ JUMP (ADDR (CADDR fun_eaddr)); LABEL fun_saddr ]
+        @@ code1
+        @@ clist [ RETURN; LABEL fun_eaddr ]
+      in
+      let code2 =
+        clist
+          ([
+             MALLOC (LREG ax, INT 2);
+             MALLOC (LREG bx, INT count);
+             MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
+             MOVE (LREFREG (ax, 1), REG bx);
+           ]
+          @ init count (fun n -> MOVE (LREFREG (bx, n), REFREG (cp, n))))
+      in
+      (code1' @@ code2, REG ax)
+  | E_APP (expty1, expty2) ->
+      let code1, rvalue1 =
+        expty2code env (labelNewLabel saddr "_APP_FST") expty1
+      in
+      let code1_post = [ PUSH rvalue1 ] in
+      let code2, rvalue2 =
+        expty2code env (labelNewLabel saddr "_APP_SND") expty2
+      in
+      let code2_post =
+        [
+          MOVE (LREG bx, rvalue2);
+          POP (LREG ax);
+          PUSH (REG cp);
+          MOVE (LREG cp, REFREG (ax, 1));
+          CALL (REFREG (ax, 0));
+          FREE (REG cp);
+          POP (LREG cp);
+        ]
+      in
+      (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
   | E_PAIR (expty1, expty2) ->
       let saddr1 = labelNewLabel saddr "_FST" in
       let saddr2 = labelNewLabel saddr "_SND" in
@@ -204,7 +248,7 @@ and dec2code env saddr = function
       let code3, venv' =
         patty2code
           (labelNewLabel saddr "_VAL_PAT")
-          dec_fail_label
+          match_fail_label
           (L_DREF (L_REG cp, count))
           patty
       in
@@ -214,7 +258,7 @@ and dec2code env saddr = function
   | D_DTYPE -> raise NotImplemented
 
 (* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code *)
-let mrule2code env saddr faddr (M_RULE (patty, expty)) =
+and mrule2code env saddr faddr (M_RULE (patty, expty)) =
   let venv, count = (env : env)
   and code1, venv' =
     patty2code (labelNewLabel saddr "_PAT") faddr (L_REG bx) patty
@@ -240,6 +284,6 @@ let program2code ((dlist, et) : Mono.program) =
        | REFADDR _ | REFREG _ ->
            [ MOVE (LREG ax, rvalue); FREE (REG cp); HALT (REG ax) ]
        | _ -> [ FREE (REG cp); HALT rvalue ])
-      @ [ LABEL dec_fail_label; EXCEPTION ])
+      @ [ LABEL match_fail_label; EXCEPTION ])
   in
   cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1 @@ code2 @@ halt
