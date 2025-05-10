@@ -158,7 +158,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) = function
       let code_post =
         clist
           ((match rvalue2 with
-           | REG bx -> []
+           | REG r when r = bx -> []
            | _ -> [ MOVE (LREG bx, rvalue2) ])
           @ [
               MALLOC (LREG ax, INT 2);
@@ -183,7 +183,9 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) = function
           @ [ PUSH (REG ax) ])
       and code_post =
         clist
-          ((match rvalue with REG ax -> [] | _ -> [ MOVE (LREG ax, rvalue) ])
+          ((match rvalue with
+           | REG r when r = ax -> []
+           | _ -> [ MOVE (LREG ax, rvalue) ])
           @ [ FREE (REG cp); POP (LREG cp) ])
       in
       (code_pre @@ code1 @@ code2 @@ code_post, REG ax)
@@ -232,5 +234,12 @@ let program2code ((dlist, et) : Mono.program) =
       (code0, env0) dlist
   in
   let code2, rvalue = expty2code env (labelNewStr "PRGEXP") et in
-  let halt = clist [ HALT rvalue; LABEL dec_fail_label; EXCEPTION ] in
+  let halt =
+    clist
+      ((match rvalue with
+       | REFADDR _ | REFREG _ ->
+           [ MOVE (LREG ax, rvalue); FREE (REG cp); HALT (REG ax) ]
+       | _ -> [ FREE (REG cp); HALT rvalue ])
+      @ [ LABEL dec_fail_label; EXCEPTION ])
+  in
   cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1 @@ code2 @@ halt
