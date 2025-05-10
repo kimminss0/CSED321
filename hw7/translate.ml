@@ -141,7 +141,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) = function
           MOVE (LREFREG (ax, 0), STR avid)
         ][@ocamlformat "disable"]
       in
-      (code, REG cx)
+      (code, REG ax)
   | E_FUN mrules -> raise NotImplemented
   | E_APP (expty1, expty2) -> raise NotImplemented
   | E_PAIR (expty1, expty2) ->
