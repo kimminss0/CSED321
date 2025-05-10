@@ -153,12 +153,11 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) = function
       let code_post =
         clist
           [
-            PUSH rvalue2;
+            MOVE (LREG bx, rvalue2);
             MALLOC (LREG ax, INT 2);
-            MOVE (LREFREG (ax, 0), REFREG (sp, -2));
-            MOVE (LREFREG (ax, 1), REFREG (sp, -1));
-            POP (LREG zr);
-            POP (LREG zr);
+            MOVE (LREFREG (ax, 1), REG bx);
+            POP (LREG bx);
+            MOVE (LREFREG (ax, 0), REG bx);
           ]
       in
       (code1 @@ code_mid @@ code2 @@ code_post, REG ax)
