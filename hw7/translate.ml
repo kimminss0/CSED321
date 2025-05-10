@@ -173,13 +173,15 @@ let dec2code env saddr = function
       let code1, rvalue =
         expty2code env (labelNewLabel saddr "_VAL_EXP") expty
       in
-      let code2 = clist [ MOVE (LREG ax, rvalue) ] in
+      let code2 = clist [ MOVE (LREFREG (cp, count), rvalue) ] in
       let code3, venv' =
         patty2code
           (labelNewLabel saddr "_VAL_PAT")
-          dec_fail_label (L_REG ax) patty
+          dec_fail_label
+          (L_DREF (L_REG cp, count))
+          patty
       in
-      let env' = (Dict.merge venv venv', count) in
+      let env' = (Dict.merge venv venv', count + 1) in
       (cpre [ LABEL saddr ] code1 @@ code2 @@ code3, env')
   | D_REC (patty, expty) -> raise NotImplemented
   | D_DTYPE -> raise NotImplemented
@@ -197,7 +199,7 @@ let mrule2code env saddr faddr (M_RULE (patty, expty)) =
 
 (* program2code : Mono.program -> Mach.code *)
 let program2code ((dlist, et) : Mono.program) =
-  let code1, env =
+  let code1, ((_, count) as env) =
     List.fold_left
       (fun (code_acc, env_acc) dec ->
         let code, env = dec2code env_acc (labelNewStr "DEC") dec in
@@ -206,4 +208,4 @@ let program2code ((dlist, et) : Mono.program) =
   in
   let code2, rvalue = expty2code env (labelNewStr "PRGEXP") et in
   let halt = clist [ HALT rvalue; LABEL dec_fail_label; EXCEPTION ] in
-  cpre [ LABEL start_label ] code1 @@ code2 @@ halt
+  cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1 @@ code2 @@ halt
