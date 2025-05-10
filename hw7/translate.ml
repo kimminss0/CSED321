@@ -22,6 +22,11 @@ type env = venv * int
 
 let env0 : env = (venv0, 0)
 
+(* polyfill of List.init *)
+let init n f =
+  let rec init' n f l = if n > 0 then init' (n - 1) f (f (n - 1) :: l) else l in
+  init' n f []
+
 (* val loc2rvalue : loc -> Mach.code * rvalue *)
 let rec loc2rvalue l =
   match l with
@@ -161,13 +166,31 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) = function
           ]
       in
       (code1 @@ code_mid @@ code2 @@ code_post, REG ax)
-  | E_LET (dec, expty) -> raise NotImplemented
+  | E_LET (dec, expty) ->
+      let _, count = env in
+      let saddr' = labelNewLabel saddr "_LETEXP" in
+      let code1, ((_, count1) as env1) = dec2code env saddr dec in
+      let code2, rvalue = expty2code env1 saddr' expty in
+      let code_pre =
+        clist
+          ([
+            MOVE (LREG ax, REG cp);
+            MALLOC (LREG cp, INT count1)
+          ][@ocamlformat "disable"]
+          @ init count (fun n -> MOVE (LREFREG (cp, n), REFREG (ax, n)))
+          @ [ PUSH (REG ax) ])
+      and code_post =
+        clist
+          ((match rvalue with REG ax -> [] | _ -> [ MOVE (LREG ax, rvalue) ])
+          @ [ FREE (REG cp); POP (LREG cp) ])
+      in
+      (code_pre @@ code1 @@ code2 @@ code_post, REG ax)
 
 (* expty2code : env -> Mach.label -> Mono.expty -> Mach.code * Mach.rvalue *)
 and expty2code env saddr (EXPTY (exp, _)) = exp2code env saddr exp
 
 (* dec2code : env -> Mach.label -> Mono.dec -> Mach.code * env *)
-let dec2code env saddr = function
+and dec2code env saddr = function
   | D_VAL (patty, expty) ->
       let venv, count = env in
       let code1, rvalue =
