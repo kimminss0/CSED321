@@ -120,14 +120,15 @@ let match_fail_label = labelNewStr "MATCH_FAILURE"
 (*
  * Generate code for Abstract Machine MACH 
  *)
-(* pat2code : Mach.label -> Mach.label -> loc -> Mono.pat -> Mach.code * venv *)
+(* pat2code : Mach.label -> Mach.label -> loc -> Mono.pat -> Mach.code * env *)
 let rec pat2code saddr faddr l pat =
   (match pat with
-  | P_WILD | P_UNIT -> (cpre [ LABEL saddr ] code0, venv0)
+  | P_UNIT -> (cpre [ LABEL saddr ] code0, env0)
+  | P_WILD -> (cpre [ LABEL saddr ] code0, (venv0, 1) (* why no env0? *))
   | P_INT i ->
       let code, rvalue = loc2rvalue l in
       let code' = clist [ JMPNEQ (ADDR (CADDR faddr), rvalue, INT i) ] in
-      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+      (cpre [ LABEL saddr ] (code @@ code'), env0)
   | P_BOOL true ->
       let code, rvalue = loc2rvalue l in
       let code' =
@@ -138,18 +139,20 @@ let rec pat2code saddr faddr l pat =
             JMPTRUE (ADDR (CADDR faddr), REG ax);
           ]
       in
-      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+      (cpre [ LABEL saddr ] (code @@ code'), env0)
   | P_BOOL false ->
       let code, rvalue = loc2rvalue l in
       let code' = clist [ JMPTRUE (ADDR (CADDR faddr), rvalue) ] in
-      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+      (cpre [ LABEL saddr ] (code @@ code'), env0)
   | P_VID (avid, VAR) ->
       let venv = Dict.insert (avid, l) venv0 in
-      ( cpre [ LABEL saddr ]
+      ( cpre
           [
+            LABEL saddr;
             DEBUG ("Create VID " ^ vid2string (avid, VAR) ^ " -> " ^ loc2str l);
-          ],
-        venv )
+          ]
+          code0,
+        (venv, 1) )
   | P_VID (avid, CON) ->
       let code, rvalue = loc2rvalue l in
       let code' =
@@ -158,26 +161,29 @@ let rec pat2code saddr faddr l pat =
         | STR _ -> clist [ JUMP (ADDR (CADDR faddr)) ]
         | _ -> clist [ JMPNEQSTR (ADDR (CADDR faddr), rvalue, STR avid) ]
       in
-      (cpre [ LABEL saddr ] (code @@ code'), venv0)
+      (cpre [ LABEL saddr ] (code @@ code'), env0)
   | P_VIDP ((avid, CONF), patty) ->
-      let code, venv = pat2code saddr faddr (L_DREF (l, 0)) (P_VID (avid, CON))
-      and code', venv' =
+      let code, (venv, count) =
+        pat2code saddr faddr (L_DREF (l, 0)) (P_VID (avid, CON))
+      and code', (venv', count') =
         patty2code (labelNewLabel saddr "_PAT") faddr (L_DREF (l, 1)) patty
       in
-      (cpre [ LABEL saddr ] (code @@ code'), Dict.merge venv venv')
+      ( cpre [ LABEL saddr ] (code @@ code'),
+        (Dict.merge venv venv', count + count') )
   | P_VID _ | P_VIDP _ -> failwith "Parse must have been failed before"
   | P_PAIR (patty1, patty2) ->
-      let code1, venv1 =
+      let code1, (venv1, count1) =
         patty2code (labelNewLabel saddr "_FST") faddr (L_DREF (l, 0)) patty1
-      and code2, venv2 =
+      and code2, (venv2, count2) =
         patty2code (labelNewLabel saddr "_SND") faddr (L_DREF (l, 1)) patty2
       in
-      (cpre [ LABEL saddr ] (code1 @@ code2), Dict.merge venv1 venv2))
-  |> fun (code, venv) ->
+      ( cpre [ LABEL saddr ] (code1 @@ code2),
+        (Dict.merge venv1 venv2, count1 + count2) ))
+  |> fun (code, (venv, count)) ->
   ( [ DEBUG ("PAT_START " ^ pat2str pat) ]
     @@ code
     @@ [ DEBUG ("PAT_END " ^ pat2str pat); DEBUG (venv2str venv) ],
-    venv )
+    (venv, count) )
 
 (* patty2code : Mach.label -> Mach.label -> loc -> Mono.patty -> Mach.code * venv *)
 and patty2code saddr faddr l (PATTY (pat, _)) = pat2code saddr faddr l pat
@@ -300,12 +306,14 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
   | E_FUN mrules ->
       let fun_saddr = labelNewLabel saddr "_BEGIN_FUNC"
       and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
-      let code1, _ =
+      let code1, _, count' =
         List.fold_right
-          (fun mrule (code_acc, faddr) ->
+          (fun mrule (code_acc, faddr, count_acc) ->
             let saddr' = labelNewLabel saddr "_MRULE" in
-            (mrule2code env saddr' faddr mrule @@ code_acc, saddr'))
-          mrules (code0, match_fail_label)
+            let code, extra_count = mrule2code env saddr' faddr mrule in
+            (code @@ code_acc, saddr', count_acc + extra_count))
+          mrules
+          (code0, match_fail_label, 0)
       in
       let code1' =
         clist [ JUMP (ADDR (CADDR fun_eaddr)); LABEL fun_saddr ]
@@ -316,7 +324,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
           ([
              MALLOC (LREG ax, INT 2);
              MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
-             MALLOC (LREG bx, INT count);
+             MALLOC (LREG bx, INT (count + count'));
              MOVE (LREFREG (ax, 1), REG bx);
            ]
           @ init count (fun n -> MOVE (LREFREG (bx, n), REFREG (cp, n))))
@@ -337,7 +345,8 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
           PUSH (REG cp);
           MOVE (LREG cp, REFREG (ax, 1));
           CALL (REFREG (ax, 0));
-          FREE (REG cp);
+          (* FREE (REG cp); *)
+          (* Should not free since it may be reused on other function calls *)
           POP (LREG cp);
         ]
       in
@@ -398,30 +407,37 @@ and dec2code env saddr = function
       let code1, rvalue =
         expty2code env (labelNewLabel saddr "_VAL_EXP") expty
       in
-      let code2 = clist [ MOVE (LREFREG (cp, count), rvalue) ] in
-      let code3, venv' =
+      let code3, (venv', count') =
         patty2code
           (labelNewLabel saddr "_VAL_PAT")
           match_fail_label
           (L_DREF (L_REG cp, count))
           patty
       in
-      let env' = (Dict.merge venv venv', count + 1) in
+      let code2 = clist [ MOVE (LREFREG (cp, count), rvalue) ] in
+      let env' = (Dict.merge venv venv', count + count') in
       (cpre [ LABEL saddr ] code1 @@ code2 @@ code3, env')
   | D_REC (patty, expty) -> raise NotImplemented
   | D_DTYPE -> raise NotImplemented
 
-(* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code *)
+(* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code * extra-count *)
 and mrule2code env saddr faddr (M_RULE (patty, expty)) =
   let venv, count = (env : env) in
   let code_pre = clist [ MOVE (LREFREG (cp, count), REG bx) ]
-  and code1, venv' =
-    patty2code (labelNewLabel saddr "_PAT") faddr (L_DREF (L_REG cp, count)) patty
+  and code1, (venv', count') =
+    patty2code
+      (labelNewLabel saddr "_PAT")
+      faddr
+      (L_DREF (L_REG cp, count))
+      patty
   in
-  let env' = (Dict.merge venv venv', count)
+  let env' = (Dict.merge venv venv', count + count')
   and saddr' = labelNewLabel saddr "_EXP" in
   let code2, rvalue = expty2code env' saddr' expty in
-  cpre [ LABEL saddr ] code_pre @@ code1 @@ cpost code2 [ MOVE (LREG ax, rvalue); RETURN ]
+  ( cpre [ LABEL saddr ] code_pre
+    @@ code1
+    @@ cpost code2 [ MOVE (LREG ax, rvalue); RETURN ],
+    count' )
 
 (* program2code : Mono.program -> Mach.code *)
 let program2code ((dlist, et) : Mono.program) =
