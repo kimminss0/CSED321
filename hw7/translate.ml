@@ -261,13 +261,19 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       let code2, rvalue2 =
         expty2code env (labelNewLabel saddr "_EQ_SND") expty2
       in
+      let label_1 = labelNewLabel saddr "_EQ_1" in
+      let label_2 = labelNewLabel saddr "_EQ_2" in
       let code2_post =
         clist
           [
             MOVE (LREG bx, rvalue2);
             POP (LREG ax);
-            XOR (LREG ax, REG ax, REG bx);
-            NOT (LREG ax, REG ax)
+            JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
+            MOVE (LREG ax, BOOL true);
+            JUMP (ADDR (CADDR label_2));
+            LABEL label_1;
+            MOVE (LREG ax, BOOL false);
+            LABEL label_2;
           ][@ocamlformat "disable"]
       in
       (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
@@ -279,12 +285,19 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       let code2, rvalue2 =
         expty2code env (labelNewLabel saddr "_NEQ_SND") expty2
       in
+      let label_1 = labelNewLabel saddr "_EQ_1" in
+      let label_2 = labelNewLabel saddr "_EQ_2" in
       let code2_post =
         clist
           [
             MOVE (LREG bx, rvalue2);
             POP (LREG ax);
-            XOR (LREG ax, REG ax, REG bx);
+            JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
+            MOVE (LREG ax, BOOL false);
+            JUMP (ADDR (CADDR label_2));
+            LABEL label_1;
+            MOVE (LREG ax, BOOL true);
+            LABEL label_2;
           ][@ocamlformat "disable"]
       in
       (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
