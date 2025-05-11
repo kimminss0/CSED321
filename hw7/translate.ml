@@ -312,13 +312,32 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       in
       (code, REG ax)
   | E_FUN mrules ->
+      let env', code_ =
+        match
+          Dict.filter
+            (fun (avid, l) ->
+              match l with L_REG r when r = bx -> true | _ -> false)
+            venv
+        with
+        | [ (avid, l) ] ->
+            let code, rvalue = loc2rvalue l in
+            let venv' = Dict.insert (avid, L_DREF (L_REG cp, count - 1)) venv in
+            let code' = clist [ MOVE (LREFREG (cp, count - 1), rvalue) ] in
+            ((venv', count), code @@ code')
+        | [] -> (env, code0)
+        | xs ->
+            failwith
+              ("match must be unique: "
+              ^ (List.map (fun (k, v) -> k ^ " -> " ^ loc2str v) xs
+                |> String.concat ", "))
+      in
       let fun_saddr = labelNewLabel saddr "_BEGIN_FUNC"
       and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
       let code1, _, count' =
         List.fold_right
           (fun mrule (code_acc, faddr, count_acc) ->
             let saddr' = labelNewLabel saddr "_MRULE" in
-            let code, extra_count = mrule2code env saddr' faddr mrule in
+            let code, extra_count = mrule2code env' saddr' faddr mrule in
             (code @@ code_acc, saddr', count_acc + extra_count))
           mrules
           (code0, match_fail_label, 0)
@@ -337,7 +356,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
            ]
           @ init count (fun n -> MOVE (LREFREG (bx, n), REFREG (cp, n))))
       in
-      (code1' @@ code2, REG ax)
+      (code_ @@ code1' @@ code2, REG ax)
   | E_APP (expty1, expty2) ->
       let code1_pre = clist [ PUSH (REG bx) ] in
       let code1, rvalue1 =
