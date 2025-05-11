@@ -118,12 +118,118 @@ and venv2str venv =
 and env2str (venv, count) =
   let venv_str =
     Dict.fold
-      (fun acc (k, v) -> acc ^ " " ^ vid2string (k, VAR) ^ " -> " ^ loc2str v)
+      (fun acc (k, v) ->
+        acc ^ " " ^ vid2string (k, VAR) ^ " -> " ^ loc2str v ^ " ||")
       "" venv
   in
   "ENV [" ^ venv_str ^ " ]" ^ " COUNT [" ^ string_of_int count ^ "]"
 
 let match_fail_label = labelNewStr "MATCH_FAILURE"
+let constructor_closure_label = labelNewStr "CONS_CLOSURE"
+
+let find_constructors (dlist, et) =
+  let rec find_constructors_in_expty constructors (EXPTY (exp, _)) =
+    let cons, confs = constructors in
+    match exp with
+    | E_VID (avid, CON) ->
+        if List.exists (fun elem -> elem = avid) cons then (cons, confs)
+        else (avid :: cons, confs)
+    | E_VID (avid, CONF) ->
+        if List.exists (fun elem -> elem = avid) confs then (cons, confs)
+        else (cons, avid :: confs)
+    | E_FUN mlist ->
+        List.fold_left
+          (fun constructors_acc (M_RULE (_, expty)) ->
+            find_constructors_in_expty constructors_acc expty)
+          constructors mlist
+    | E_APP (expty1, expty2) ->
+        find_constructors_in_expty
+          (find_constructors_in_expty constructors expty1)
+          expty2
+    | E_PAIR (expty1, expty2) ->
+        find_constructors_in_expty
+          (find_constructors_in_expty constructors expty1)
+          expty2
+    | E_LET (dec, expty) ->
+        find_constructors_in_expty
+          (find_constructors_in_dec constructors dec)
+          expty
+    | _ -> constructors
+  and find_constructors_in_dec constructors dec =
+    match dec with
+    | D_VAL (_, expty) -> find_constructors_in_expty constructors expty
+    | D_REC (_, expty) -> find_constructors_in_expty constructors expty
+    | _ -> constructors
+  in
+  List.fold_left
+    (fun constructors_acc dec -> find_constructors_in_dec constructors_acc dec)
+    (find_constructors_in_expty ([], []) et)
+    dlist
+
+let create_datatype_closures (dlist, et) =
+  let create_con_closure (code, (venv, count)) con =
+    let saddr = labelNewStr (con ^ "_CON_START") in
+    let faddr = labelNewStr (con ^ "_CON_END") in
+    let code' =
+      clist
+        [
+          DEBUG ("Create constructor closure " ^ con);
+          MALLOC (LREG ax, INT 2);
+          MALLOC (LREG bx, INT 1);
+          MOVE (LREFREG (ax, 0), ADDR (CADDR saddr));
+          MOVE (LREFREG (ax, 1), REG bx);
+          MOVE (LREFREG (bx, 0), STR con);
+          MOVE (LREFREG (cp, count), REG ax);
+          JUMP (ADDR (CADDR faddr));
+          LABEL saddr;
+          MALLOC (LREG ax, INT 2);
+          MOVE (LREFREG (ax, 0), STR con);
+          MOVE (LREFREG (ax, 1), REG bx);
+          MALLOC (LREG bx, INT 2);
+          MOVE (LREFREG (bx, 0), ADDR (CADDR saddr));
+          MOVE (LREFREG (bx, 1), REG ax);
+          MOVE (LREG ax, REG bx);
+          RETURN;
+          LABEL faddr;
+        ]
+    in
+    ( code @@ code',
+      (Dict.insert (con, L_DREF (L_REG cp, count)) venv, count + 1) )
+  in
+  let create_conf_closure (code, (venv, count)) conf =
+    let saddr = labelNewStr (conf ^ "_CONF_START") in
+    let faddr = labelNewStr (conf ^ "_CONF_END") in
+    let code' =
+      clist
+        [
+          DEBUG ("Create constructor closure " ^ conf);
+          MALLOC (LREG ax, INT 2);
+          MALLOC (LREG bx, INT 1);
+          MOVE (LREFREG (ax, 0), ADDR (CADDR saddr));
+          MOVE (LREFREG (ax, 1), REG bx);
+          MOVE (LREFREG (bx, 0), STR conf);
+          MOVE (LREFREG (cp, count), REG ax);
+          JUMP (ADDR (CADDR faddr));
+          LABEL saddr;
+          MALLOC (LREG ax, INT 2);
+          MOVE (LREFREG (ax, 0), STR conf);
+          MOVE (LREFREG (ax, 1), REG bx);
+          MALLOC (LREG bx, INT 2);
+          MOVE (LREFREG (bx, 0), ADDR (CADDR saddr));
+          MOVE (LREFREG (bx, 1), REG ax);
+          MOVE (LREG ax, REG bx);
+          RETURN;
+          LABEL faddr;
+        ]
+    in
+    ( code @@ code',
+      (Dict.insert (conf, L_DREF (L_REG cp, count)) venv, count + 1) )
+  in
+  let cons, confs = find_constructors (dlist, et) in
+  let code1, env1 =
+    List.fold_left create_con_closure (code0, (venv0, 0)) cons
+  in
+  List.fold_left create_conf_closure (code1, env1) confs
 
 (*
  * Generate code for Abstract Machine MACH 
@@ -162,22 +268,28 @@ let rec pat2code saddr faddr l pat =
           code0,
         (venv, 1) )
   | P_VID (avid, CON) ->
-      let code, rvalue = loc2rvalue l in
+      let venv = Dict.insert (avid, l) venv0 in
+      let code, rvalue = loc2rvalue (L_DREF (L_DREF (l, 1), 0)) in
       let code' =
         match rvalue with
         | STR str when str = avid -> code0
         | STR _ -> clist [ JUMP (ADDR (CADDR faddr)) ]
         | _ -> clist [ JMPNEQSTR (ADDR (CADDR faddr), rvalue, STR avid) ]
       in
-      (cpre [ LABEL saddr ] (code @@ code'), env0)
+      (cpre [ LABEL saddr; DEBUG "CON_PAT" ] (code @@ code'), (venv, 1))
   | P_VIDP ((avid, CONF), patty) ->
-      let code, (venv, count) =
-        pat2code saddr faddr (L_DREF (l, 0)) (P_VID (avid, CON))
-      and code', (venv', count') =
-        patty2code (labelNewLabel saddr "_PAT") faddr (L_DREF (l, 1)) patty
+      let venv_ = Dict.insert (avid, l) venv0 in
+      let code, (venv, count) = pat2code saddr faddr l (P_VID (avid, CON)) in
+      let code', (venv', count') =
+        patty2code
+          (labelNewLabel saddr "_PAT")
+          faddr
+          (L_DREF ((L_DREF (l, 1)), 1))
+          (* (L_REG bx) *)
+          patty
       in
-      ( cpre [ LABEL saddr ] (code @@ code'),
-        (Dict.merge venv venv', count + count') )
+      ( cpre [ LABEL saddr; DEBUG "CONF_PAT" ] (code @@ code'),
+        (venv_ |> Dict.merge venv |> Dict.merge venv', 1 + count + count') )
   | P_VID _ | P_VIDP _ -> failwith "Parse must have been failed before"
   | P_PAIR (patty1, patty2) ->
       let code1, (venv1, count1) =
@@ -314,7 +426,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
         REG ax )
   | E_PLUS | E_MINUS | E_MULT | E_EQ | E_NEQ -> failwith "should not match here"
-  | E_VID (avid, VAR) -> (
+  | E_VID (avid, _) -> (
       match Dict.lookup avid venv with
       | Some l ->
           let code, rvalue = loc2rvalue l in
@@ -327,18 +439,9 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
                ],
             rvalue )
       | None -> failwith ("Unknown avid: " ^ avid))
-  | E_VID (avid, CON) -> (code0, STR avid)
-  | E_VID (avid, CONF) ->
-      let code =
-        clist [
-          MALLOC (LREG ax, INT 2);
-          MOVE (LREFREG (ax, 0), STR avid)
-        ][@ocamlformat "disable"]
-      in
-      (code, REG ax)
   | E_FUN mrules ->
       let env', code_ =
-        match
+        let xs =
           Dict.filter
             (fun (avid, l) ->
               let rec pred = function
@@ -349,8 +452,9 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
               in
               pred l)
             venv
-        with
-        | [ (avid, l) ] ->
+        in
+        List.fold_left
+          (fun ((venv, _), code_acc) (avid, l) ->
             let code, rvalue = loc2rvalue l in
             let rec transform = function
               | L_REG r -> L_DREF (L_REG cp, count - 1)
@@ -360,13 +464,8 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             in
             let venv' = Dict.insert (avid, transform l) venv in
             let code' = clist [ MOVE (LREFREG (cp, count - 1), rvalue) ] in
-            ((venv', count), code @@ code')
-        | [] -> (env, code0)
-        | xs ->
-            failwith
-              ("match must be unique: "
-              ^ (List.map (fun (k, v) -> k ^ " -> " ^ loc2str v) xs
-                |> String.concat ", "))
+            ((venv', count), code_acc @@ code @@ code'))
+          (env, code0) xs
       in
       let fun_saddr = labelNewLabel saddr "_BEGIN_FUNC"
       and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
@@ -515,7 +614,7 @@ and dec2code env saddr = function
       ( cpre [ LABEL saddr ] code1 @@ code1_post @@ code2_pre @@ code2 @@ code3,
         env' )
   | D_REC _ -> failwith "D_REC should be P_VID (VAR)"
-  | D_DTYPE -> raise NotImplemented
+  | D_DTYPE -> (code0, env)
 
 (* mrule2code : env -> Mach.label -> Mach.label -> Mono.mrule -> Mach.code * extra-count *)
 and mrule2code env saddr faddr (M_RULE (patty, expty)) =
@@ -531,12 +630,13 @@ and mrule2code env saddr faddr (M_RULE (patty, expty)) =
 
 (* program2code : Mono.program -> Mach.code *)
 let program2code ((dlist, et) : Mono.program) =
+  let code_pre, env_pre = create_datatype_closures (dlist, et) in
   let code1, ((_, count) as env) =
     List.fold_left
       (fun (code_acc, env_acc) dec ->
         let code, env = dec2code env_acc (labelNewStr "DEC") dec in
         (code_acc @@ code, env))
-      (code0, env0) dlist
+      (code_pre, env_pre) dlist
   in
   let code2, rvalue = expty2code env (labelNewStr "PRGEXP") et in
   let halt =
@@ -547,4 +647,12 @@ let program2code ((dlist, et) : Mono.program) =
        | _ -> [ FREE (REG cp); HALT rvalue ])
       @ [ LABEL match_fail_label; EXCEPTION ])
   in
-  cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1 @@ code2 @@ halt
+  let dconst_closure =
+    clist [
+      LABEL constructor_closure_label;
+      MOVE (LREG ax, REG bx);
+      RETURN;
+    ]
+  in
+  cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1
+  @@ code2 @@ halt @@ dconst_closure
