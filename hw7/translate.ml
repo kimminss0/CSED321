@@ -220,6 +220,8 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       in
       (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
   | E_APP (EXPTY (E_MINUS, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
+      let code_pre = clist [ PUSH (REG bx) ] in
+      let code_post = clist [ POP (LREG bx) ] in
       let code1, rvalue1 =
         expty2code env (labelNewLabel saddr "_MINUS_FST") expty1
       in
@@ -235,8 +237,11 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             SUB (LREG ax, REG ax, REG bx);
           ][@ocamlformat "disable"]
       in
-      (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
+      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
+        REG ax )
   | E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
+      let code_pre = clist [ PUSH (REG bx) ] in
+      let code_post = clist [ POP (LREG bx) ] in
       let code1, rvalue1 =
         expty2code env (labelNewLabel saddr "_MULT_FST") expty1
       in
@@ -252,8 +257,11 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             MUL (LREG ax, REG ax, REG bx);
           ][@ocamlformat "disable"]
       in
-      (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
+      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
+        REG ax )
   | E_APP (EXPTY (E_EQ, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
+      let code_pre = clist [ PUSH (REG bx) ] in
+      let code_post = clist [ POP (LREG bx) ] in
       let code1, rvalue1 =
         expty2code env (labelNewLabel saddr "_EQ_FST") expty1
       in
@@ -276,8 +284,11 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             LABEL label_2;
           ][@ocamlformat "disable"]
       in
-      (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
+      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
+        REG ax )
   | E_APP (EXPTY (E_NEQ, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
+      let code_pre = clist [ PUSH (REG bx) ] in
+      let code_post = clist [ POP (LREG bx) ] in
       let code1, rvalue1 =
         expty2code env (labelNewLabel saddr "_NEQ_FST") expty1
       in
@@ -300,7 +311,8 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             LABEL label_2;
           ][@ocamlformat "disable"]
       in
-      (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
+      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
+        REG ax )
   | E_PLUS | E_MINUS | E_MULT | E_EQ | E_NEQ -> failwith "should not match here"
   | E_VID (avid, VAR) -> (
       match Dict.lookup avid venv with
@@ -329,12 +341,24 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
         match
           Dict.filter
             (fun (avid, l) ->
-              match l with L_REG r when r = bx -> true | _ -> false)
+              let rec pred = function
+                | L_REG r when r = bx -> true
+                | L_DREF (L_REG r, _) when r = bx -> true
+                | L_DREF (l, _) -> pred l
+                | _ -> false
+              in
+              pred l)
             venv
         with
         | [ (avid, l) ] ->
             let code, rvalue = loc2rvalue l in
-            let venv' = Dict.insert (avid, L_DREF (L_REG cp, count - 1)) venv in
+            let rec transform = function
+              | L_REG r -> L_DREF (L_REG cp, count - 1)
+              | L_DREF (L_REG r, i) -> L_DREF (L_DREF (L_REG cp, count - 1), i)
+              | L_DREF (l, i) -> L_DREF (transform l, i)
+              | _ -> failwith "should not match here"
+            in
+            let venv' = Dict.insert (avid, transform l) venv in
             let code' = clist [ MOVE (LREFREG (cp, count - 1), rvalue) ] in
             ((venv', count), code @@ code')
         | [] -> (env, code0)
@@ -435,7 +459,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       in
       (code_pre @@ code1 @@ code2 @@ code_post, REG ax))
   |> fun (code, rvalue) ->
-  ( [ DEBUG ("START " ^ exp2str exp) ]
+  ( [ DEBUG ("START " ^ exp2str exp); DEBUG (env2str env) ]
     @@ code
     @@ [ DEBUG ("END   " ^ exp2str exp) ],
     rvalue )
