@@ -122,13 +122,7 @@ and venv2str venv =
   "ENV [" ^ venv_str ^ " ]"
 
 and env2str (venv, count) =
-  let venv_str =
-    Dict.fold
-      (fun acc (k, v) ->
-        acc ^ " " ^ vid2string (k, VAR) ^ " -> " ^ loc2str v ^ " ||")
-      "" venv
-  in
-  "ENV [" ^ venv_str ^ " ]" ^ " COUNT [" ^ string_of_int count ^ "]"
+  venv2str venv ^ " COUNT [" ^ string_of_int count ^ "]"
 
 let match_fail_label = labelNewStr "MATCH_FAILURE"
 
@@ -160,8 +154,7 @@ let find_constructors (dlist, et) =
           (find_constructors_in_dec constructors dec)
           expty
     | _ -> constructors
-  and find_constructors_in_dec constructors dec =
-    match dec with
+  and find_constructors_in_dec constructors = function
     | D_VAL (_, expty) -> find_constructors_in_expty constructors expty
     | D_REC (_, expty) -> find_constructors_in_expty constructors expty
     | _ -> constructors
@@ -231,9 +224,7 @@ let create_datatype_closures (dlist, et) =
       (Dict.insert (conf, L_DREF (L_REG cp, count)) venv, count + 1) )
   in
   let cons, confs = find_constructors (dlist, et) in
-  let code1, env1 =
-    List.fold_left create_con_closure (code0, (venv0, 0)) cons
-  in
+  let code1, env1 = List.fold_left create_con_closure (code0, env0) cons in
   List.fold_left create_conf_closure (code1, env1) confs
 
 (*
@@ -251,12 +242,7 @@ let rec pat2code saddr faddr l pat =
   | P_BOOL true ->
       let code, rvalue = loc2rvalue l in
       let code' =
-        clist
-          [
-            (* TODO: ensure that it is ok to use AX here; no side effects *)
-            NOT (LREG ax, rvalue);
-            JMPTRUE (ADDR (CADDR faddr), REG ax);
-          ]
+        clist [ NOT (LREG ax, rvalue); JMPTRUE (ADDR (CADDR faddr), REG ax) ]
       in
       (cpre [ LABEL saddr ] (code @@ code'), env0)
   | P_BOOL false ->
@@ -398,7 +384,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             LABEL label_1;
             MOVE (LREG ax, BOOL false);
             LABEL label_2;
-          ][@ocamlformat "disable"]
+          ]
       in
       ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
         REG ax )
@@ -425,7 +411,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             LABEL label_1;
             MOVE (LREG ax, BOOL true);
             LABEL label_2;
-          ][@ocamlformat "disable"]
+          ]
       in
       ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
         REG ax )
