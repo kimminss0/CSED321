@@ -110,7 +110,8 @@ and pat2str = function
 and venv2str venv =
   let venv_str =
     Dict.fold
-      (fun acc (k, v) -> acc ^ " " ^ vid2string (k, VAR) ^ " -> " ^ loc2str v)
+      (fun acc (k, v) ->
+        acc ^ " " ^ vid2string (k, VAR) ^ " -> " ^ loc2str v ^ " ||")
       "" venv
   in
   "ENV [" ^ venv_str ^ " ]"
@@ -185,7 +186,7 @@ let create_datatype_closures (dlist, et) =
           MALLOC (LREG ax, INT 2);
           MOVE (LREFREG (ax, 0), STR con);
           MOVE (LREFREG (ax, 1), REG bx);
-          MALLOC (LREG bx, INT 2);
+          MALLOC (LREG bx, INT 1);
           MOVE (LREFREG (bx, 0), ADDR (CADDR saddr));
           MOVE (LREFREG (bx, 1), REG ax);
           MOVE (LREG ax, REG bx);
@@ -285,7 +286,6 @@ let rec pat2code saddr faddr l pat =
           (labelNewLabel saddr "_PAT")
           faddr
           (L_DREF (L_DREF (l, 1), 1))
-          (* (L_REG bx) *)
           patty
       in
       ( cpre [ LABEL saddr; DEBUG "CONF_PAT" ] (code @@ code'),
@@ -302,7 +302,7 @@ let rec pat2code saddr faddr l pat =
   |> fun (code, (venv, count)) ->
   ( [ DEBUG ("PAT_START " ^ pat2str pat) ]
     @@ code
-    @@ [ DEBUG ("PAT_END   " ^ pat2str pat); DEBUG (venv2str venv) ],
+    @@ [ DEBUG ("PAT_END   " ^ pat2str pat); DEBUG (env2str (venv, count)) ],
     (venv, count) )
 
 (* patty2code : Mach.label -> Mach.label -> loc -> Mono.patty -> Mach.code * venv *)
@@ -471,10 +471,10 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
       let code1, _, count' =
         List.fold_right
-          (fun mrule (code_acc, faddr, count_acc) ->
+          (fun mrule (code_acc, faddr, max_extra_count) ->
             let saddr' = labelNewLabel saddr "_MRULE" in
             let code, extra_count = mrule2code env' saddr' faddr mrule in
-            (code @@ code_acc, saddr', count_acc + extra_count))
+            (code @@ code_acc, saddr', max extra_count max_extra_count))
           mrules
           (code0, match_fail_label, 0)
       in
@@ -487,10 +487,15 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
           ([
              MALLOC (LREG ax, INT 2);
              MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
-             MALLOC (LREG bx, INT (count + count'));
-             MOVE (LREFREG (ax, 1), REG bx);
            ]
-          @ init count (fun n -> MOVE (LREFREG (bx, n), REFREG (cp, n))))
+          @
+          if count + count' = 0 then []
+          else
+            [
+              MALLOC (LREG bx, INT (count + count'));
+              MOVE (LREFREG (ax, 1), REG bx);
+            ]
+            @ init count (fun n -> MOVE (LREFREG (bx, n), REFREG (cp, n))))
       in
       (code_ @@ code1' @@ code2, REG ax)
   | E_APP (expty1, expty2) ->
