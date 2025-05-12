@@ -131,7 +131,6 @@ and env2str (venv, count) =
   "ENV [" ^ venv_str ^ " ]" ^ " COUNT [" ^ string_of_int count ^ "]"
 
 let match_fail_label = labelNewStr "MATCH_FAILURE"
-let constructor_closure_label = labelNewStr "CONS_CLOSURE"
 
 let find_constructors (dlist, et) =
   let rec find_constructors_in_expty constructors (EXPTY (exp, _)) =
@@ -653,8 +652,4 @@ let program2code ((dlist, et) : Mono.program) =
        | _ -> [ HALT rvalue ])
       @ [ LABEL match_fail_label; EXCEPTION ])
   in
-  let dconst_closure =
-    clist [ LABEL constructor_closure_label; MOVE (LREG ax, REG bx); RETURN ]
-  in
-  cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1
-  @@ code2 @@ halt @@ dconst_closure
+  cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1 @@ code2 @@ halt
