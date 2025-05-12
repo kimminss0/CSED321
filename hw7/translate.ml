@@ -3,6 +3,11 @@ open Mono
 
 exception NotImplemented
 
+(*
+ * TODO: - Reduce unncessary heap allocation (use fit size for malloc)
+ *       - Optimize the code (e.g. remove unnecessary move)
+ *)
+
 (* location *)
 type loc =
   | L_INT of int          (* integer constant *)
