@@ -284,7 +284,7 @@ let rec pat2code saddr faddr l pat =
         patty2code
           (labelNewLabel saddr "_PAT")
           faddr
-          (L_DREF ((L_DREF (l, 1)), 1))
+          (L_DREF (L_DREF (l, 1), 1))
           (* (L_REG bx) *)
           patty
       in
@@ -543,10 +543,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       let code2, rvalue = expty2code env1 saddr' expty in
       let code_pre =
         clist
-          ([
-            MOVE (LREG ax, REG cp);
-            MALLOC (LREG cp, INT count1)
-          ][@ocamlformat "disable"]
+          ([ MOVE (LREG ax, REG cp); MALLOC (LREG cp, INT count1) ]
           @ init count (fun n -> MOVE (LREFREG (cp, n), REFREG (ax, n)))
           @ [ PUSH (REG ax) ])
       and code_post =
@@ -554,7 +551,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
           ((match rvalue with
            | REG r when r = ax -> []
            | _ -> [ MOVE (LREG ax, rvalue) ])
-          @ [ FREE (REG cp); POP (LREG cp) ])
+          @ [ POP (LREG cp) ])
       in
       (code_pre @@ code1 @@ code2 @@ code_post, REG ax))
   |> fun (code, rvalue) ->
@@ -642,17 +639,12 @@ let program2code ((dlist, et) : Mono.program) =
   let halt =
     clist
       ((match rvalue with
-       | REFADDR _ | REFREG _ ->
-           [ MOVE (LREG ax, rvalue); FREE (REG cp); HALT (REG ax) ]
-       | _ -> [ FREE (REG cp); HALT rvalue ])
+       | REFADDR _ | REFREG _ -> [ MOVE (LREG ax, rvalue); HALT (REG ax) ]
+       | _ -> [ HALT rvalue ])
       @ [ LABEL match_fail_label; EXCEPTION ])
   in
   let dconst_closure =
-    clist [
-      LABEL constructor_closure_label;
-      MOVE (LREG ax, REG bx);
-      RETURN;
-    ]
+    clist [ LABEL constructor_closure_label; MOVE (LREG ax, REG bx); RETURN ]
   in
   cpre [ LABEL start_label; MALLOC (LREG cp, INT count) ] code1
   @@ code2 @@ halt @@ dconst_closure
