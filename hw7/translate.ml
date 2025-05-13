@@ -173,10 +173,10 @@ let create_datatype_closures (dlist, et) =
         [
           DEBUG ("Create constructor closure " ^ con);
           MALLOC (LREG ax, INT 2);
-          MALLOC (LREG bx, INT 1);
+          MALLOC (LREG cx, INT 1);
           MOVE (LREFREG (ax, 0), ADDR (CADDR saddr));
-          MOVE (LREFREG (ax, 1), REG bx);
-          MOVE (LREFREG (bx, 0), STR con);
+          MOVE (LREFREG (ax, 1), REG cx);
+          MOVE (LREFREG (cx, 0), STR con);
           MOVE (LREFREG (cp, count), REG ax);
           JUMP (ADDR (CADDR faddr));
           LABEL saddr;
@@ -202,10 +202,10 @@ let create_datatype_closures (dlist, et) =
         [
           DEBUG ("Create constructor closure " ^ conf);
           MALLOC (LREG ax, INT 2);
-          MALLOC (LREG bx, INT 1);
+          MALLOC (LREG cx, INT 1);
           MOVE (LREFREG (ax, 0), ADDR (CADDR saddr));
-          MOVE (LREFREG (ax, 1), REG bx);
-          MOVE (LREFREG (bx, 0), STR conf);
+          MOVE (LREFREG (ax, 1), REG cx);
+          MOVE (LREFREG (cx, 0), STR conf);
           MOVE (LREFREG (cp, count), REG ax);
           JUMP (ADDR (CADDR faddr));
           LABEL saddr;
@@ -375,9 +375,9 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
           let code2_post =
             clist
               [
-                MOVE (LREG bx, rvalue2);
+                MOVE (LREG cx, rvalue2);
                 POP (LREG ax);
-                JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
+                JMPNEQ (ADDR (CADDR label_1), REG ax, REG cx);
                 MOVE (LREG ax, BOOL false);
                 JUMP (ADDR (CADDR label_2));
                 LABEL label_1;
@@ -411,9 +411,9 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
           let code2_post =
             clist
               [
-                MOVE (LREG bx, rvalue2);
+                MOVE (LREG cx, rvalue2);
                 POP (LREG ax);
-                JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
+                JMPNEQ (ADDR (CADDR label_1), REG ax, REG cx);
                 MOVE (LREG ax, BOOL true);
                 JUMP (ADDR (CADDR label_2));
                 LABEL label_1;
@@ -486,18 +486,19 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       in
       let code2 =
         clist
-          ([
-             MALLOC (LREG ax, INT 2);
-             MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
-           ]
-          @
-          if count + count' = 0 then []
-          else
-            [
-              MALLOC (LREG bx, INT (count + count'));
-              MOVE (LREFREG (ax, 1), REG bx);
-            ]
-            @ init count (fun n -> MOVE (LREFREG (bx, n), REFREG (cp, n))))
+          (if count + count' = 0 then
+             [
+               MALLOC (LREG ax, INT 1);
+               MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
+             ]
+           else
+             [
+               MALLOC (LREG ax, INT 2);
+               MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
+               MALLOC (LREG cx, INT (count + count'));
+               MOVE (LREFREG (ax, 1), REG cx);
+             ]
+             @ init count (fun n -> MOVE (LREFREG (cx, n), REFREG (cp, n))))
       in
       (code_ @@ code1 @@ code2, REG ax)
   | E_APP (expty1, expty2) ->
@@ -535,13 +536,13 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       let code_post =
         clist
           ((match rvalue2 with
-           | REG r when r = bx -> []
-           | _ -> [ MOVE (LREG bx, rvalue2) ])
+           | REG r when r = cx -> []
+           | _ -> [ MOVE (LREG cx, rvalue2) ])
           @ [
               MALLOC (LREG ax, INT 2);
-              MOVE (LREFREG (ax, 1), REG bx);
-              POP (LREG bx);
-              MOVE (LREFREG (ax, 0), REG bx);
+              MOVE (LREFREG (ax, 1), REG cx);
+              POP (LREG cx);
+              MOVE (LREFREG (ax, 0), REG cx);
             ])
       in
       (code1 @@ code_mid @@ code2 @@ code_post, REG ax)
