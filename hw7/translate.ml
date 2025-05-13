@@ -227,6 +227,23 @@ let create_datatype_closures (dlist, et) =
   let code1, env1 = List.fold_left create_con_closure (code0, env0) cons in
   List.fold_left create_conf_closure (code1, env1) confs
 
+let ensure_bx_untouched code =
+  if
+    List.exists
+      (function
+        | MOVE (LREG r, _) when r = bx -> true
+        | ADD (LREG r, _, _) when r = bx -> true
+        | SUB (LREG r, _, _) when r = bx -> true
+        | MUL (LREG r, _, _) when r = bx -> true
+        | XOR (LREG r, _, _) when r = bx -> true
+        | NOT (LREG r, _) when r = bx -> true
+        | POP (LREG r) when r = bx -> true
+        | MALLOC (LREG r, _) when r = bx -> true
+        | _ -> false)
+      code
+  then cpre [ PUSH (REG bx) ] code @@ clist [ POP (LREG bx) ]
+  else code
+
 (*
  * Generate code for Abstract Machine MACH 
  *)
@@ -304,117 +321,137 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
   | E_INT i -> (code0, INT i)
   | E_BOOL b -> (code0, BOOL b)
   | E_UNIT -> (code0, UNIT)
-  | E_APP (EXPTY (E_PLUS, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
-      let code1, rvalue1 =
-        expty2code env (labelNewLabel saddr "_PLUS_FST") expty1
-      in
-      let code1_post = clist [ PUSH rvalue1 ] in
-      let code2, rvalue2 =
-        expty2code env (labelNewLabel saddr "_PLUS_SND") expty2
-      in
-      let code2_post =
-        clist
-          [
-            MOVE (LREG bx, rvalue2);
-            POP (LREG ax);
-            ADD (LREG ax, REG ax, REG bx);
-          ][@ocamlformat "disable"]
-      in
-      (code1 @@ code1_post @@ code2 @@ code2_post, REG ax)
-  | E_APP (EXPTY (E_MINUS, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
-      let code_pre = clist [ PUSH (REG bx) ] in
-      let code_post = clist [ POP (LREG bx) ] in
-      let code1, rvalue1 =
-        expty2code env (labelNewLabel saddr "_MINUS_FST") expty1
-      in
-      let code1_post = clist [ PUSH rvalue1 ] in
-      let code2, rvalue2 =
-        expty2code env (labelNewLabel saddr "_MINUS_SND") expty2
-      in
-      let code2_post =
-        clist
-          [
-            MOVE (LREG bx, rvalue2);
-            POP (LREG ax);
-            SUB (LREG ax, REG ax, REG bx);
-          ][@ocamlformat "disable"]
-      in
-      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
-        REG ax )
-  | E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
-      let code_pre = clist [ PUSH (REG bx) ] in
-      let code_post = clist [ POP (LREG bx) ] in
-      let code1, rvalue1 =
-        expty2code env (labelNewLabel saddr "_MULT_FST") expty1
-      in
-      let code1_post = clist [ PUSH rvalue1 ] in
-      let code2, rvalue2 =
-        expty2code env (labelNewLabel saddr "_MULT_SND") expty2
-      in
-      let code2_post =
-        clist
-          [
-            MOVE (LREG bx, rvalue2);
-            POP (LREG ax);
-            MUL (LREG ax, REG ax, REG bx);
-          ][@ocamlformat "disable"]
-      in
-      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
-        REG ax )
-  | E_APP (EXPTY (E_EQ, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
-      let code_pre = clist [ PUSH (REG bx) ] in
-      let code_post = clist [ POP (LREG bx) ] in
-      let code1, rvalue1 =
-        expty2code env (labelNewLabel saddr "_EQ_FST") expty1
-      in
-      let code1_post = clist [ PUSH rvalue1 ] in
-      let code2, rvalue2 =
-        expty2code env (labelNewLabel saddr "_EQ_SND") expty2
-      in
+  | E_APP (EXPTY (E_PLUS, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
+      let saddr1 = labelNewLabel saddr "_ADD_FST"
+      and saddr2 = labelNewLabel saddr "_ADD_SND" in
+      let code1, rvalue1 = expty2code env saddr1 expty1
+      and code2, rvalue2 = expty2code env saddr2 expty2 in
+      match (rvalue1, rvalue2) with
+      | INT n, INT m -> (ensure_bx_untouched (code1 @@ code2), INT (n + m))
+      | INT _, _ | _, INT _ ->
+          ( ensure_bx_untouched
+              (cpost (code1 @@ code2) [ ADD (LREG ax, rvalue1, rvalue2) ]),
+            REG ax )
+      | _ ->
+          ( ensure_bx_untouched
+              (code1 @@ clist [ PUSH rvalue1 ] @@ code2
+              @@ clist
+                   [
+                     POP (LREG cx);
+                     (* Should check whether rvalue2 depends on cx,
+                        but the register cx is only used here so we can
+                        blindly use cx anyway without checking the constraint *)
+                     ADD (LREG ax, REG cx, rvalue2);
+                   ]),
+            REG ax ))
+  | E_APP (EXPTY (E_MINUS, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
+      let saddr1 = labelNewLabel saddr "_MINUS_FST"
+      and saddr2 = labelNewLabel saddr "_MINUS_SND" in
+      let code1, rvalue1 = expty2code env saddr1 expty1
+      and code2, rvalue2 = expty2code env saddr2 expty2 in
+      match (rvalue1, rvalue2) with
+      | INT n, INT m -> (ensure_bx_untouched (code1 @@ code2), INT (n - m))
+      | INT _, _ | _, INT _ ->
+          ( ensure_bx_untouched
+              (cpost (code1 @@ code2) [ SUB (LREG ax, rvalue1, rvalue2) ]),
+            REG ax )
+      | _ ->
+          ( ensure_bx_untouched
+              (code1 @@ clist [ PUSH rvalue1 ] @@ code2
+              @@ clist [ POP (LREG cx); SUB (LREG ax, REG cx, rvalue2) ]),
+            REG ax ))
+  | E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
+      let saddr1 = labelNewLabel saddr "_MULT_FST"
+      and saddr2 = labelNewLabel saddr "_MULT_SND" in
+      let code1, rvalue1 = expty2code env saddr1 expty1
+      and code2, rvalue2 = expty2code env saddr2 expty2 in
+      match (rvalue1, rvalue2) with
+      | INT n, INT m -> (ensure_bx_untouched (code1 @@ code2), INT (n * m))
+      | INT _, _ | _, INT _ ->
+          ( ensure_bx_untouched
+              (cpost (code1 @@ code2) [ MUL (LREG ax, rvalue1, rvalue2) ]),
+            REG ax )
+      | _ ->
+          ( ensure_bx_untouched
+              (code1 @@ clist [ PUSH rvalue1 ] @@ code2
+              @@ clist [ POP (LREG cx); MUL (LREG ax, REG cx, rvalue2) ]),
+            REG ax ))
+  | E_APP (EXPTY (E_EQ, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
+      let saddr1 = labelNewLabel saddr "_EQ_FST"
+      and saddr2 = labelNewLabel saddr "_EQ_SND" in
+      let code1, rvalue1 = expty2code env saddr1 expty1
+      and code2, rvalue2 = expty2code env saddr2 expty2 in
       let label_1 = labelNewLabel saddr "_EQ_1" in
       let label_2 = labelNewLabel saddr "_EQ_2" in
-      let code2_post =
-        clist
-          [
-            MOVE (LREG bx, rvalue2);
-            POP (LREG ax);
-            JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
-            MOVE (LREG ax, BOOL true);
-            JUMP (ADDR (CADDR label_2));
-            LABEL label_1;
-            MOVE (LREG ax, BOOL false);
-            LABEL label_2;
-          ]
-      in
-      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
-        REG ax )
-  | E_APP (EXPTY (E_NEQ, _), EXPTY (E_PAIR (expty1, expty2), _)) ->
-      let code_pre = clist [ PUSH (REG bx) ] in
-      let code_post = clist [ POP (LREG bx) ] in
-      let code1, rvalue1 =
-        expty2code env (labelNewLabel saddr "_NEQ_FST") expty1
-      in
-      let code1_post = clist [ PUSH rvalue1 ] in
-      let code2, rvalue2 =
-        expty2code env (labelNewLabel saddr "_NEQ_SND") expty2
-      in
-      let label_1 = labelNewLabel saddr "_EQ_1" in
-      let label_2 = labelNewLabel saddr "_EQ_2" in
-      let code2_post =
-        clist
-          [
-            MOVE (LREG bx, rvalue2);
-            POP (LREG ax);
-            JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
-            MOVE (LREG ax, BOOL false);
-            JUMP (ADDR (CADDR label_2));
-            LABEL label_1;
-            MOVE (LREG ax, BOOL true);
-            LABEL label_2;
-          ]
-      in
-      ( code_pre @@ code1 @@ code1_post @@ code2 @@ code2_post @@ code_post,
-        REG ax )
+      match (rvalue1, rvalue2) with
+      | INT n, INT m -> (ensure_bx_untouched (code1 @@ code2), BOOL (n = m))
+      | INT _, _ | _, INT _ ->
+          ( ensure_bx_untouched
+              (cpost (code1 @@ code2)
+                 [
+                   JMPNEQ (ADDR (CADDR label_1), rvalue1, rvalue2);
+                   MOVE (LREG ax, BOOL true);
+                   JUMP (ADDR (CADDR label_2));
+                   LABEL label_1;
+                   MOVE (LREG ax, BOOL false);
+                   LABEL label_2;
+                 ]),
+            REG ax )
+      | _ ->
+          let code1_post = clist [ PUSH rvalue1 ] in
+          let code2_post =
+            clist
+              [
+                MOVE (LREG bx, rvalue2);
+                POP (LREG ax);
+                JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
+                MOVE (LREG ax, BOOL false);
+                JUMP (ADDR (CADDR label_2));
+                LABEL label_1;
+                MOVE (LREG ax, BOOL true);
+                LABEL label_2;
+              ]
+          in
+          ( ensure_bx_untouched (code1 @@ code1_post @@ code2 @@ code2_post),
+            REG ax ))
+  | E_APP (EXPTY (E_NEQ, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
+      let saddr1 = labelNewLabel saddr "_NEQ_FST"
+      and saddr2 = labelNewLabel saddr "_NEQ_SND" in
+      let code1, rvalue1 = expty2code env saddr1 expty1
+      and code2, rvalue2 = expty2code env saddr2 expty2 in
+      let label_1 = labelNewLabel saddr "_NEQ_1" in
+      let label_2 = labelNewLabel saddr "_NEQ_2" in
+      match (rvalue1, rvalue2) with
+      | INT n, INT m -> (ensure_bx_untouched (code1 @@ code2), BOOL (n = m))
+      | INT _, _ | _, INT _ ->
+          ( ensure_bx_untouched
+              (cpost (code1 @@ code2)
+                 [
+                   JMPNEQ (ADDR (CADDR label_1), rvalue1, rvalue2);
+                   MOVE (LREG ax, BOOL true);
+                   JUMP (ADDR (CADDR label_2));
+                   LABEL label_1;
+                   MOVE (LREG ax, BOOL false);
+                   LABEL label_2;
+                 ]),
+            REG ax )
+      | _ ->
+          let code1_post = clist [ PUSH rvalue1 ] in
+          let code2_post =
+            clist
+              [
+                MOVE (LREG bx, rvalue2);
+                POP (LREG ax);
+                JMPNEQ (ADDR (CADDR label_1), REG ax, REG bx);
+                MOVE (LREG ax, BOOL true);
+                JUMP (ADDR (CADDR label_2));
+                LABEL label_1;
+                MOVE (LREG ax, BOOL false);
+                LABEL label_2;
+              ]
+          in
+          ( ensure_bx_untouched (code1 @@ code1_post @@ code2 @@ code2_post),
+            REG ax ))
   | E_PLUS | E_MINUS | E_MULT | E_EQ | E_NEQ -> failwith "should not match here"
   | E_VID (avid, _) -> (
       match Dict.lookup avid venv with
