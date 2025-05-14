@@ -470,19 +470,23 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
               pred l)
             venv
         in
-        List.fold_left
-          (fun ((venv, _), code_acc) (avid, l) ->
-            let code, rvalue = loc2rvalue l in
-            let rec transform = function
-              | L_REG r -> L_DREF (L_REG cp, count - 1)
-              | L_DREF (L_REG r, i) -> L_DREF (L_DREF (L_REG cp, count - 1), i)
-              | L_DREF (l, i) -> L_DREF (transform l, i)
-              | _ -> failwith "should not match here"
-            in
-            let venv' = Dict.insert (avid, transform l) venv in
-            let code' = clist [ MOVE (LREFREG (cp, count - 1), rvalue) ] in
-            ((venv', count), code_acc @@ code @@ code'))
-          (env, code0) xs
+        match xs with
+        | [] -> (env, code0)
+        | _ ->
+            List.fold_left
+              (fun ((venv, _), code_acc) (avid, l) ->
+                let code, rvalue = loc2rvalue l in
+                let rec transform = function
+                  | L_REG r -> L_DREF (L_REG cp, count - 1)
+                  | L_DREF (L_REG r, i) ->
+                      L_DREF (L_DREF (L_REG cp, count - 1), i)
+                  | L_DREF (l, i) -> L_DREF (transform l, i)
+                  | _ -> failwith "should not match here"
+                in
+                let venv' = Dict.insert (avid, transform l) venv in
+                ((venv', count), code_acc @@ code))
+              (env, clist [ MOVE (LREFREG (cp, count - 1), REG bx) ])
+              xs
       in
       let fun_saddr = labelNewLabel saddr "_BEGIN_FUNC"
       and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
