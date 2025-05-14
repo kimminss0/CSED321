@@ -314,15 +314,17 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       | INT _, _ | _, INT _ ->
           (cpost (code1 @@ code2) [ ADD (LREG ax, rvalue1, rvalue2) ], REG ax)
       | _ ->
-          ( code1 @@ clist [ PUSH rvalue1 ] @@ code2
-            @@ clist
-                 [
-                   POP (LREG cx);
-                   (* Should check whether rvalue2 depends on cx,
-                        but the register cx is only used here so we can
-                        blindly use cx anyway without checking the constraint *)
-                   ADD (LREG ax, REG cx, rvalue2);
-                 ],
+          ( (code1 @@ clist [ PUSH rvalue1 ] @@ code2
+            @@
+            match rvalue2 with
+            | REG r when r = cx ->
+                [ POP (LREG ax); ADD (LREG ax, REG cx, REG ax) ]
+            | _ ->
+                [
+                  MOVE (LREG cx, rvalue2);
+                  POP (LREG ax);
+                  ADD (LREG ax, REG cx, REG ax);
+                ]),
             REG ax ))
   | E_APP (EXPTY (E_MINUS, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
       let saddr1 = labelNewLabel saddr "_MINUS_FST"
@@ -334,8 +336,17 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       | INT _, _ | _, INT _ ->
           (cpost (code1 @@ code2) [ SUB (LREG ax, rvalue1, rvalue2) ], REG ax)
       | _ ->
-          ( code1 @@ clist [ PUSH rvalue1 ] @@ code2
-            @@ clist [ POP (LREG cx); SUB (LREG ax, REG cx, rvalue2) ],
+          ( (code1 @@ clist [ PUSH rvalue1 ] @@ code2
+            @@
+            match rvalue2 with
+            | REG r when r = cx ->
+                [ POP (LREG ax); SUB (LREG ax, REG cx, REG ax) ]
+            | _ ->
+                [
+                  MOVE (LREG cx, rvalue2);
+                  POP (LREG ax);
+                  SUB (LREG ax, REG cx, REG ax);
+                ]),
             REG ax ))
   | E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
       let saddr1 = labelNewLabel saddr "_MULT_FST"
@@ -347,8 +358,17 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       | INT _, _ | _, INT _ ->
           (cpost (code1 @@ code2) [ MUL (LREG ax, rvalue1, rvalue2) ], REG ax)
       | _ ->
-          ( code1 @@ clist [ PUSH rvalue1 ] @@ code2
-            @@ clist [ POP (LREG cx); MUL (LREG ax, REG cx, rvalue2) ],
+          ( (code1 @@ clist [ PUSH rvalue1 ] @@ code2
+            @@
+            match rvalue2 with
+            | REG r when r = cx ->
+                [ POP (LREG ax); MUL (LREG ax, REG cx, REG ax) ]
+            | _ ->
+                [
+                  MOVE (LREG cx, rvalue2);
+                  POP (LREG ax);
+                  MUL (LREG ax, REG cx, REG ax);
+                ]),
             REG ax ))
   | E_APP (EXPTY (E_EQ, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
       let saddr1 = labelNewLabel saddr "_EQ_FST"
