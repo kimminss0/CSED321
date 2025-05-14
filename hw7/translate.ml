@@ -508,7 +508,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
         clist
           (if count + count' = 0 then
              [
-               MALLOC (LREG ax, INT 1);
+               MALLOC (LREG ax, INT 2);
                MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
              ]
            else
