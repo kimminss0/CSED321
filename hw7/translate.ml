@@ -340,12 +340,12 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             @@
             match rvalue2 with
             | REG r when r = cx ->
-                [ POP (LREG ax); SUB (LREG ax, REG cx, REG ax) ]
+                [ POP (LREG ax); SUB (LREG ax, REG ax, REG cx) ]
             | _ ->
                 [
                   MOVE (LREG cx, rvalue2);
                   POP (LREG ax);
-                  SUB (LREG ax, REG cx, REG ax);
+                  SUB (LREG ax, REG ax, REG cx);
                 ]),
             REG ax ))
   | E_APP (EXPTY (E_MULT, _), EXPTY (E_PAIR (expty1, expty2), _)) -> (
