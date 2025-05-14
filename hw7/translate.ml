@@ -457,7 +457,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             rvalue )
       | None -> failwith ("Unknown avid: " ^ avid))
   | E_FUN mrules ->
-      let env', code_ =
+      let ((_, count') as env'), code_pre, count_incremented =
         let xs =
           Dict.filter
             (fun (avid, l) ->
@@ -471,26 +471,27 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
             venv
         in
         match xs with
-        | [] -> (env, code0)
+        | [] -> (env, code0, false)
         | _ ->
-            List.fold_left
-              (fun ((venv, _), code_acc) (avid, l) ->
-                let code, rvalue = loc2rvalue l in
-                let rec transform = function
-                  | L_REG r -> L_DREF (L_REG cp, count - 1)
-                  | L_DREF (L_REG r, i) ->
-                      L_DREF (L_DREF (L_REG cp, count - 1), i)
-                  | L_DREF (l, i) -> L_DREF (transform l, i)
-                  | _ -> failwith "should not match here"
-                in
-                let venv' = Dict.insert (avid, transform l) venv in
-                ((venv', count), code_acc @@ code))
-              (env, clist [ MOVE (LREFREG (cp, count - 1), REG bx) ])
-              xs
+            let env', code_pre =
+              List.fold_left
+                (fun ((venv, _), code_acc) (avid, l) ->
+                  let code, rvalue = loc2rvalue l in
+                  let rec transform = function
+                    | L_REG r -> L_DREF (L_REG cp, count)
+                    | L_DREF (L_REG r, i) -> L_DREF (L_DREF (L_REG cp, count), i)
+                    | L_DREF (l, i) -> L_DREF (transform l, i)
+                    | _ -> failwith "should not match here"
+                  in
+                  let venv' = Dict.insert (avid, transform l) venv in
+                  ((venv', count + 1), code_acc @@ code))
+                (env, code0) xs
+            in
+            (env', code_pre, true)
       in
       let fun_saddr = labelNewLabel saddr "_BEGIN_FUNC"
       and fun_eaddr = labelNewLabel saddr "_END_FUNC" in
-      let code1, count' =
+      let code1, count1 =
         let codes, _, max_extra_count =
           List.fold_right
             (fun mrule (l, faddr, max_extra_counts) ->
@@ -510,7 +511,7 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       in
       let code2 =
         clist
-          (if count + count' = 0 then
+          (if count' + count1 = 0 then
              [
                MALLOC (LREG ax, INT 2);
                MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
@@ -519,12 +520,15 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
              [
                MALLOC (LREG ax, INT 2);
                MOVE (LREFREG (ax, 0), ADDR (CADDR fun_saddr));
-               MALLOC (LREG cx, INT (count + count'));
+               MALLOC (LREG cx, INT (count' + count1));
                MOVE (LREFREG (ax, 1), REG cx);
              ]
-             @ init count (fun n -> MOVE (LREFREG (cx, n), REFREG (cp, n))))
+             @ init count (fun n -> MOVE (LREFREG (cx, n), REFREG (cp, n)))
+             @
+             if count_incremented then [ MOVE (LREFREG (cx, count), REG bx) ]
+             else [])
       in
-      (code_ @@ code1 @@ code2, REG ax)
+      (code_pre @@ code1 @@ code2, REG ax)
   | E_APP (expty1, expty2) ->
       let code1, rvalue1 =
         expty2code env (labelNewLabel saddr "_APP_FST") expty1
