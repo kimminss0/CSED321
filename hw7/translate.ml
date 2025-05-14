@@ -398,10 +398,10 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
                 MOVE (LREG cx, rvalue2);
                 POP (LREG ax);
                 JMPNEQ (ADDR (CADDR label_1), REG ax, REG cx);
-                MOVE (LREG ax, BOOL false);
+                MOVE (LREG ax, BOOL true);
                 JUMP (ADDR (CADDR label_2));
                 LABEL label_1;
-                MOVE (LREG ax, BOOL true);
+                MOVE (LREG ax, BOOL false);
                 LABEL label_2;
               ]
           in
@@ -414,15 +414,15 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
       let label_1 = labelNewLabel saddr "_NEQ_1" in
       let label_2 = labelNewLabel saddr "_NEQ_2" in
       match (rvalue1, rvalue2) with
-      | INT n, INT m -> (code1 @@ code2, BOOL (n = m))
+      | INT n, INT m -> (code1 @@ code2, BOOL (n <> m))
       | INT _, _ | _, INT _ ->
           ( cpost (code1 @@ code2)
               [
                 JMPNEQ (ADDR (CADDR label_1), rvalue1, rvalue2);
-                MOVE (LREG ax, BOOL true);
+                MOVE (LREG ax, BOOL false);
                 JUMP (ADDR (CADDR label_2));
                 LABEL label_1;
-                MOVE (LREG ax, BOOL false);
+                MOVE (LREG ax, BOOL true);
                 LABEL label_2;
               ],
             REG ax )
@@ -434,10 +434,10 @@ let rec exp2code ((venv, count) as env : env) (saddr : label) exp =
                 MOVE (LREG cx, rvalue2);
                 POP (LREG ax);
                 JMPNEQ (ADDR (CADDR label_1), REG ax, REG cx);
-                MOVE (LREG ax, BOOL true);
+                MOVE (LREG ax, BOOL false);
                 JUMP (ADDR (CADDR label_2));
                 LABEL label_1;
-                MOVE (LREG ax, BOOL false);
+                MOVE (LREG ax, BOOL true);
                 LABEL label_2;
               ]
           in
