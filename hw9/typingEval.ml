@@ -58,6 +58,16 @@ module Classes = struct
         (List.map fst (Method.params method'), Method.ret_type method')
     | None -> mtype classes method_name (Class.super_type cls)
 
+  let rec mbody classes method_name (typ : typ) =
+    if typ = "Object" then failwith "Object has no methods";
+    let cls = classDeclOf classes typ in
+    let methods = Class.methods cls in
+    match
+      List.find_opt (fun method' -> Method.name method' = method_name) methods
+    with
+    | Some method' -> (List.map snd (Method.params method'), Method.body method')
+    | None -> mbody classes method_name (Class.super_type cls)
+
   let rec isSubtype classes sub sup =
     if sub = sup then true
     else if sub = "Object" then false
@@ -156,24 +166,20 @@ let typeOf (classes, exp) =
     classes;
   typeOf' Env.empty exp
 
-let rec redex exp =
-  match exp with
+let rec redex = function
   | Var _ -> false
   | New (_, args) -> List.exists redex args
   | _ -> true
 
-let rec idx_of x l =
-  match l with
+let rec idx_of x = function
   | [] -> raise Stuck
   | h :: t -> if h = x then 0 else 1 + idx_of x t
 
-let rec redex_depth exprs =
-  match exprs with
+let rec redex_depth = function
   | [] -> raise Stuck
   | e :: es -> if redex e then 0 else 1 + redex_depth es
 
-let rec substitute ctx exp =
-  match exp with
+let rec substitute ctx = function
   | Var v -> (
       match List.find_opt (fun (v', _) -> v = v') ctx with
       | Some (_, e) -> e
@@ -184,42 +190,25 @@ let rec substitute ctx exp =
   | New (typ, args) -> New (typ, List.map (substitute ctx) args)
   | Cast (typ, e) -> Cast (typ, substitute ctx e)
 
-let rec find_method classes typ m =
-  let cls = Classes.classDeclOf classes typ in
-  let methods = Class.methods cls in
-  match List.find_opt (fun m' -> Method.name m' = m) methods with
-  | Some method' -> method'
-  | None ->
-      if Class.super_type cls = "Object" then raise Stuck
-      else find_method classes (Class.super_type cls) m
-
 let step ((classes, exp) : program) =
-  let rec step' exp =
-    match exp with
+  let rec step' = function
     | Var _ -> raise Stuck
     | Field ((New (typ, args) as e), f) ->
         if redex e then Field (step' e, f)
         else
           List.nth args (idx_of f (List.map snd (Classes.fields classes typ)))
     | Field (e, f) -> Field (step' e, f)
+    | Method ((New _ as e), m, margs) when redex e -> Method (step' e, m, margs)
     | Method ((New (typ, nargs) as e), m, margs) -> (
-        if redex e then Method (step' e, m, margs)
-        else
-          try
-            let i = redex_depth margs in
-            let margs' =
-              List.mapi (fun j arg -> if j = i then step' arg else arg) margs
-            in
-            Method (e, m, margs')
-          with Stuck ->
-            let method' = find_method classes typ m in
-            if List.length margs <> List.length (Method.params method') then
-              raise Stuck
-            else
-              substitute
-                ([ ("this", e) ]
-                @ List.combine (List.map snd (Method.params method')) margs)
-                (Method.body method'))
+        try
+          let i = redex_depth margs in
+          let margs' =
+            List.mapi (fun j arg -> if j = i then step' arg else arg) margs
+          in
+          Method (e, m, margs')
+        with Stuck ->
+          let arg_xs, exp_e = Classes.mbody classes m typ in
+          substitute ([ ("this", e) ] @ List.combine arg_xs margs) exp_e)
     | Method (e, m, margs) -> Method (step' e, m, margs)
     | New (typ, args) ->
         let i = redex_depth args in
