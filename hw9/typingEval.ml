@@ -105,7 +105,11 @@ let typeOf ((classes, exp) : program) =
         let fields = Classes.fields classes t in
         let arg_types_sup = List.map fst fields in
         let arg_types_sub = List.map (typeOf' env) args in
-        if List.for_all2 (Classes.isSubtype classes) arg_types_sub arg_types_sup
+        if
+          List.length arg_types_sub = List.length arg_types_sup
+          && List.for_all2
+               (Classes.isSubtype classes)
+               arg_types_sub arg_types_sup
         then t
         else raise TypeError (* T-New *)
     | Cast (t, e) ->
