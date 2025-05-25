@@ -100,7 +100,7 @@ let typeOf ((classes, exp) : program) =
         let arg_types_sub = List.map (typeOf' env) args in
         if List.for_all2 (Classes.isSubtype classes) arg_types_sub arg_types_sup
         then ret_type
-        else raise TypeError (* T-Invk*)
+        else raise TypeError (* T-Invk *)
     | New (t, args) ->
         let fields = Classes.fields classes t in
         let arg_types_sup = List.map fst fields in
@@ -135,6 +135,7 @@ let typeOf ((classes, exp) : program) =
     let typ_cs = List.split params |> fst in
     Classes.isSubtype classes typ_e0 typ_c0
     && Classes.override classes (Method.name method') typ_d (typ_cs, typ_c0)
+    (* T-Method *)[@ocamlformat "disable"]
   and isClassValid typ_c =
     let cls = Classes.classDeclOf classes typ_c in
     let typ_d = Class.super_type cls in
@@ -153,6 +154,7 @@ let typeOf ((classes, exp) : program) =
     && List.length fields = List.length fields'
     && List.for_all2 ( = ) fields fields'
     && List.for_all (isMethodValid typ_c) methods
+    (* T-Class *)[@ocamlformat "disable"]
   in
   List.iter
     (fun cls ->
@@ -184,12 +186,13 @@ let step ((classes, exp) : program) =
     | Cast (typ, e) -> Cast (typ, substitute ctx e)
   and step' = function
     | Var _ -> raise Stuck
-    | Field ((New (typ, args) as e), f) ->
-        if redex e then Field (step' e, f)
-        else
-          List.nth args (idx_of f (List.map snd (Classes.fields classes typ)))
-    | Field (e, f) -> Field (step' e, f)
-    | Method ((New _ as e), m, margs) when redex e -> Method (step' e, m, margs)
+    | Field (e, f) when redex e -> Field (step' e, f) (* RC-Field *)
+    | Field (New (typ, args), f) ->
+        List.nth args (idx_of f (List.map snd (Classes.fields classes typ)))
+        (* R-Field *)
+    | Field _ -> raise Stuck
+    | Method ((New _ as e), m, margs) when redex e ->
+        Method (step' e, m, margs) (* RC-Invk-Recv *)
     | Method ((New (typ, nargs) as e), m, margs) -> (
         try
           let i = redex_depth margs in
@@ -197,19 +200,21 @@ let step ((classes, exp) : program) =
             List.mapi (fun j arg -> if j = i then step' arg else arg) margs
           in
           Method (e, m, margs')
+          (* RC-Invk-Arg *)
         with Stuck ->
           let arg_xs, exp_e = Classes.mbody classes m typ in
-          substitute (("this", e) :: List.combine arg_xs margs) exp_e)
-    | Method (e, m, margs) -> Method (step' e, m, margs)
+          substitute (("this", e) :: List.combine arg_xs margs) exp_e
+          (* R-Invk *))
+    | Method _ -> raise Stuck
     | New (typ, args) ->
         let i = redex_depth args in
         New (typ, List.mapi (fun j arg -> if j = i then step' arg else arg) args)
-    | Cast (ctype, (New (ntype, nargs) as e)) ->
-        if redex (Cast (ctype, step' e)) then Cast (ctype, step' e)
-        else if List.mem ctype (List.map fst (Classes.fields classes ntype))
-        then e
-        else raise Stuck
-    | Cast (typ, e) -> Cast (typ, step' e)
+        (* RC-New-Arg *)
+    | Cast (typ, e) when redex e -> Cast (typ, step' e) (* RC-Cast *)
+    | Cast (ctype, (New (ntype, nargs) as e))
+      when List.mem ctype (List.map fst (Classes.fields classes ntype)) ->
+        e (* R-Cast *)
+    | Cast _ -> raise Stuck
   in
   (classes, step' exp)
 
