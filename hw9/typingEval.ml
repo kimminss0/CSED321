@@ -156,7 +156,83 @@ let typeOf (classes, exp) =
     classes;
   typeOf' Env.empty exp
 
-let step p = raise NotImplemented
+let rec redex exp =
+  match exp with
+  | Var _ -> false
+  | New (_, args) -> List.exists redex args
+  | _ -> true
+
+let rec idx_of x l =
+  match l with
+  | [] -> raise Stuck
+  | h :: t -> if h = x then 0 else 1 + idx_of x t
+
+let rec redex_depth exprs =
+  match exprs with
+  | [] -> raise Stuck
+  | e :: es -> if redex e then 0 else 1 + redex_depth es
+
+let rec substitute ctx exp =
+  match exp with
+  | Var v -> (
+      match List.find_opt (fun (v', _) -> v = v') ctx with
+      | Some (_, e) -> e
+      | None -> raise Stuck)
+  | Field (e, f) -> Field (substitute ctx e, f)
+  | Method (e, m, args) ->
+      Method (substitute ctx e, m, List.map (substitute ctx) args)
+  | New (typ, args) -> New (typ, List.map (substitute ctx) args)
+  | Cast (typ, e) -> Cast (typ, substitute ctx e)
+
+let rec find_method classes typ m =
+  let cls = Classes.classDeclOf classes typ in
+  let methods = Class.methods cls in
+  match List.find_opt (fun m' -> Method.name m' = m) methods with
+  | Some method' -> method'
+  | None ->
+      if Class.super_type cls = "Object" then raise Stuck
+      else find_method classes (Class.super_type cls) m
+
+let step ((classes, exp) : program) =
+  let rec step' exp =
+    match exp with
+    | Var _ -> raise Stuck
+    | Field ((New (typ, args) as e), f) ->
+        if redex e then Field (step' e, f)
+        else
+          List.nth args (idx_of f (List.map snd (Classes.fields classes typ)))
+    | Field (e, f) -> Field (step' e, f)
+    | Method ((New (typ, nargs) as e), m, margs) -> (
+        if redex e then Method (step' e, m, margs)
+        else
+          try
+            let i = redex_depth margs in
+            let margs' =
+              List.mapi (fun j arg -> if j = i then step' arg else arg) margs
+            in
+            Method (e, m, margs')
+          with Stuck ->
+            let method' = find_method classes typ m in
+            if List.length margs <> List.length (Method.params method') then
+              raise Stuck
+            else
+              substitute
+                ([ ("this", e) ]
+                @ List.combine (List.map snd (Method.params method')) margs)
+                (Method.body method'))
+    | Method (e, m, margs) -> Method (step' e, m, margs)
+    | New (typ, args) ->
+        let i = redex_depth args in
+        New (typ, List.mapi (fun j arg -> if j = i then step' arg else arg) args)
+    | Cast (ctype, (New (ntype, nargs) as e)) ->
+        if redex (Cast (ctype, step' e)) then Cast (ctype, step' e)
+        else if List.mem ctype (List.map fst (Classes.fields classes ntype))
+        then e
+        else raise Stuck
+    | Cast (typ, e) -> Cast (typ, step' e)
+  in
+  (classes, step' exp)
+
 let typeOpt p = try Some (typeOf p) with TypeError -> None
 let stepOpt p = try Some (step p) with Stuck -> None
 let rec multiStep p = try multiStep (step p) with Stuck -> p
