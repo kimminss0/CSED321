@@ -33,7 +33,8 @@ end
 
 module Classes = struct
   let classDeclOf classes typ =
-    List.find (fun cls -> Class.name cls = typ) classes
+    try List.find (fun cls -> Class.name cls = typ) classes
+    with Not_found -> raise TypeError
 
   let rec fields classes (typ : typ) : (typ * string) list =
     let rec fields' typ =
@@ -47,6 +48,7 @@ module Classes = struct
     fields' typ
 
   let rec mtype classes method_name (typ : typ) =
+    if typ = "Object" then failwith "Object has no methods";
     let cls = classDeclOf classes typ in
     let methods = Class.methods cls in
     match
@@ -57,15 +59,18 @@ module Classes = struct
     | None -> mtype classes method_name (Class.super_type cls)
 
   let rec isSubtype classes sub sup =
-    match sub with
-    | _ when sub = sup -> true
-    | "Object" -> false
-    | _ -> isSubtype classes (Class.super_type (classDeclOf classes sub)) sup
+    if sub = sup then true
+    else if sub = "Object" then false
+    else isSubtype classes (Class.super_type (classDeclOf classes sub)) sup
 
   let override classes method_name typ_d (method_arg_types, method_ret_type) =
-    let method_arg_types', method_ret_type' = mtype classes method_name typ_d in
-    List.for_all2 ( = ) method_arg_types method_arg_types'
-    && method_ret_type = method_ret_type'
+    if typ_d = "Object" then true
+    else
+      let method_arg_types', method_ret_type' =
+        mtype classes method_name typ_d
+      in
+      List.for_all2 ( = ) method_arg_types method_arg_types'
+      && method_ret_type = method_ret_type'
 end
 
 module Env = Map.Make (String)
