@@ -87,31 +87,25 @@ module Env = Map.Make (String)
 
 type env = typ Env.t
 
-let typeOf (classes, exp) =
+let typeOf ((classes, exp) : program) =
   let rec typeOf' (env : env) = function
     | Var v -> (
         try Env.find v env with Not_found -> raise TypeError (* T-Var *))
     | Field (e, f) ->
         let fields = Classes.fields classes (typeOf' env e) in
-        List.find (fun (typ, name) -> name = f) fields |> fst (* T-Field *)
+        List.find (fun (_typ, name) -> name = f) fields |> fst (* T-Field *)
     | Method (e, m, args) ->
         let exp_typ = typeOf' env e in
         let arg_types_sup, ret_type = Classes.mtype classes m exp_typ in
-        let arg_types_sub = List.map (fun e' -> typeOf' env e') args in
-        if
-          List.for_all2
-            (fun sub sup -> Classes.isSubtype classes sub sup)
-            arg_types_sub arg_types_sup
+        let arg_types_sub = List.map (typeOf' env) args in
+        if List.for_all2 (Classes.isSubtype classes) arg_types_sub arg_types_sup
         then ret_type
         else raise TypeError (* T-Invk*)
     | New (t, args) ->
         let fields = Classes.fields classes t in
         let arg_types_sup = List.map fst fields in
-        let arg_types_sub = List.map (fun arg -> typeOf' env arg) args in
-        if
-          List.for_all2
-            (fun sub sup -> Classes.isSubtype classes sub sup)
-            arg_types_sub arg_types_sup
+        let arg_types_sub = List.map (typeOf' env) args in
+        if List.for_all2 (Classes.isSubtype classes) arg_types_sub arg_types_sup
         then t
         else raise TypeError (* T-New *)
     | Cast (t, e) ->
@@ -121,10 +115,10 @@ let typeOf (classes, exp) =
         else
           let _ = print_endline "Stupid Warning" in
           t (* T-SCast *)
-  and isMethodValid method' typ_c =
+  and isMethodValid typ_c method' =
     let cls = Classes.classDeclOf classes typ_c in
     let params = Method.params method' in
-    let env =
+    let env' =
       List.fold_left
         (fun (env : env) (typ, string) -> Env.add string typ env)
         Env.empty params
@@ -132,7 +126,7 @@ let typeOf (classes, exp) =
     in
     let exp_e0 = Method.body method' in
     let typ_c0 = Method.ret_type method' in
-    let typ_e0 = typeOf' env exp_e0 in
+    let typ_e0 = typeOf' env' exp_e0 in
     let typ_d = Class.super_type cls in
     let typ_cs = List.split params |> fst in
     Classes.isSubtype classes typ_e0 typ_c0
@@ -145,8 +139,7 @@ let typeOf (classes, exp) =
     let super_args_g = Constructor.super_args ctor in
     let typ_ds =
       Constructor.params ctor
-      |> List.filter (fun (_typ, name) ->
-             List.exists (fun name' -> name = name') super_args_g)
+      |> List.filter (fun (_typ, name) -> List.mem name super_args_g)
       |> List.map fst
     in
     let fields = Classes.fields classes typ_d in
@@ -154,10 +147,8 @@ let typeOf (classes, exp) =
     let methods = Class.methods cls in
     typ_c = typ_c'
     && List.length fields = List.length fields'
-    && List.for_all2
-         (fun (typ, name) (typ', name') -> typ = typ' && name = name')
-         fields fields'
-    && List.for_all (fun method' -> isMethodValid method' typ_c) methods
+    && List.for_all2 ( = ) fields fields'
+    && List.for_all (isMethodValid typ_c) methods
   in
   List.iter
     (fun cls ->
@@ -166,32 +157,28 @@ let typeOf (classes, exp) =
     classes;
   typeOf' Env.empty exp
 
-let rec redex = function
-  | Var _ -> false
-  | New (_, args) -> List.exists redex args
-  | _ -> true
-
-let rec idx_of x = function
-  | [] -> raise Stuck
-  | h :: t -> if h = x then 0 else 1 + idx_of x t
-
-let rec redex_depth = function
-  | [] -> raise Stuck
-  | e :: es -> if redex e then 0 else 1 + redex_depth es
-
-let rec substitute ctx = function
-  | Var v -> (
-      match List.find_opt (fun (v', _) -> v = v') ctx with
-      | Some (_, e) -> e
-      | None -> raise Stuck)
-  | Field (e, f) -> Field (substitute ctx e, f)
-  | Method (e, m, args) ->
-      Method (substitute ctx e, m, List.map (substitute ctx) args)
-  | New (typ, args) -> New (typ, List.map (substitute ctx) args)
-  | Cast (typ, e) -> Cast (typ, substitute ctx e)
-
 let step ((classes, exp) : program) =
-  let rec step' = function
+  let rec redex = function
+    | Var _ -> false
+    | New (_, args) -> List.exists redex args
+    | _ -> true
+  and idx_of x = function
+    | [] -> raise Stuck
+    | h :: t -> if h = x then 0 else 1 + idx_of x t
+  and redex_depth = function
+    | [] -> raise Stuck
+    | e :: es -> if redex e then 0 else 1 + redex_depth es
+  and substitute ctx = function
+    | Var v -> (
+        match List.find_opt (fun (v', _) -> v = v') ctx with
+        | Some (_, e) -> e
+        | None -> raise Stuck)
+    | Field (e, f) -> Field (substitute ctx e, f)
+    | Method (e, m, args) ->
+        Method (substitute ctx e, m, List.map (substitute ctx) args)
+    | New (typ, args) -> New (typ, List.map (substitute ctx) args)
+    | Cast (typ, e) -> Cast (typ, substitute ctx e)
+  and step' = function
     | Var _ -> raise Stuck
     | Field ((New (typ, args) as e), f) ->
         if redex e then Field (step' e, f)
@@ -208,7 +195,7 @@ let step ((classes, exp) : program) =
           Method (e, m, margs')
         with Stuck ->
           let arg_xs, exp_e = Classes.mbody classes m typ in
-          substitute ([ ("this", e) ] @ List.combine arg_xs margs) exp_e)
+          substitute (("this", e) :: List.combine arg_xs margs) exp_e)
     | Method (e, m, margs) -> Method (step' e, m, margs)
     | New (typ, args) ->
         let i = redex_depth args in
