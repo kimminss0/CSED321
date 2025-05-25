@@ -31,7 +31,79 @@ module Program = struct
   let exp ((_, exp) : program) = exp
 end
 
-let typeOf p = raise NotImplemented
+module Classes = struct
+  let classDeclOf classes typ =
+    List.find (fun cls -> Class.name cls = typ) classes
+
+  let rec fields classes (typ : typ) : (typ * string) list =
+    let rec fields' typ =
+      match typ with
+      | "Object" -> []
+      | _ ->
+          let cls = classDeclOf classes typ in
+          let sup_typ = Class.super_type cls in
+          fields' sup_typ @ Class.fields cls
+    in
+    fields' typ
+
+  let rec mtype classes method_name (typ : typ) =
+    let cls = classDeclOf classes typ in
+    let methods = Class.methods cls in
+    match
+      List.find_opt (fun method' -> Method.name method' = method_name) methods
+    with
+    | Some method' ->
+        (List.map fst (Method.params method'), Method.ret_type method')
+    | None -> mtype classes method_name (Class.super_type cls)
+
+  let rec isSubtype classes sub sup =
+    match sub with
+    | _ when sub = sup -> true
+    | "Object" -> false
+    | _ -> isSubtype classes (Class.super_type (classDeclOf classes sub)) sup
+end
+
+module Env = Map.Make (String)
+
+type env = typ Env.t
+
+let typeOf classes exp =
+  let rec typeOf' (env : env) = function
+    | Var v -> (
+        try Env.find v env with Not_found -> raise TypeError (* T-Var *))
+    | Field (e, f) ->
+        let fields = Classes.fields classes (typeOf' env e) in
+        List.find (fun (typ, name) -> name = f) fields |> fst (* T-Field *)
+    | Method (e, m, args) ->
+        let exp_typ = typeOf' env e in
+        let arg_types_sup, ret_type = Classes.mtype classes m exp_typ in
+        let arg_types_sub = List.map (fun e' -> typeOf' env e') args in
+        if
+          List.for_all2
+            (fun sub sup -> Classes.isSubtype classes sub sup)
+            arg_types_sub arg_types_sup
+        then ret_type
+        else raise TypeError (* T-Invk*)
+    | New (t, args) ->
+        let fields = Classes.fields classes t in
+        let arg_types_sup = List.map fst fields in
+        let arg_types_sub = List.map (fun arg -> typeOf' env arg) args in
+        if
+          List.for_all2
+            (fun sub sup -> Classes.isSubtype classes sub sup)
+            arg_types_sub arg_types_sup
+        then t
+        else raise TypeError (* T-New *)
+    | Cast (t, e) ->
+        let type_exp = typeOf' env e in
+        if Classes.isSubtype classes type_exp t then t (* T-UCast *)
+        else if Classes.isSubtype classes t type_exp then t (* T-DCast *)
+        else
+          let _ = print_endline "Stupid Warning" in
+          t (* T-SCast *)
+  in
+  typeOf' Env.empty exp
+
 let step p = raise NotImplemented
 let typeOpt p = try Some (typeOf p) with TypeError -> None
 let stepOpt p = try Some (step p) with Stuck -> None
