@@ -61,13 +61,18 @@ module Classes = struct
     | _ when sub = sup -> true
     | "Object" -> false
     | _ -> isSubtype classes (Class.super_type (classDeclOf classes sub)) sup
+
+  let override classes method_name typ_d (method_arg_types, method_ret_type) =
+    let method_arg_types', method_ret_type' = mtype classes method_name typ_d in
+    List.for_all2 ( = ) method_arg_types method_arg_types'
+    && method_ret_type = method_ret_type'
 end
 
 module Env = Map.Make (String)
 
 type env = typ Env.t
 
-let typeOf classes exp =
+let typeOf (classes, exp) =
   let rec typeOf' (env : env) = function
     | Var v -> (
         try Env.find v env with Not_found -> raise TypeError (* T-Var *))
@@ -101,7 +106,49 @@ let typeOf classes exp =
         else
           let _ = print_endline "Stupid Warning" in
           t (* T-SCast *)
+  and isMethodValid method' typ_c =
+    let cls = Classes.classDeclOf classes typ_c in
+    let params = Method.params method' in
+    let env =
+      List.fold_left
+        (fun (env : env) (typ, string) -> Env.add string typ env)
+        Env.empty params
+      |> Env.add "this" typ_c
+    in
+    let exp_e0 = Method.body method' in
+    let typ_c0 = Method.ret_type method' in
+    let typ_e0 = typeOf' env exp_e0 in
+    let typ_d = Class.super_type cls in
+    let typ_cs = List.split params |> fst in
+    Classes.isSubtype classes typ_e0 typ_c0
+    && Classes.override classes (Method.name method') typ_d (typ_cs, typ_c0)
+  and isClassValid typ_c =
+    let cls = Classes.classDeclOf classes typ_c in
+    let typ_d = Class.super_type cls in
+    let ctor = Class.ctor cls in
+    let typ_c' = Constructor.name ctor in
+    let super_args_g = Constructor.super_args ctor in
+    let typ_ds =
+      Constructor.params ctor
+      |> List.filter (fun (_typ, name) ->
+             List.exists (fun name' -> name = name') super_args_g)
+      |> List.map fst
+    in
+    let fields = Classes.fields classes typ_d in
+    let fields' = List.combine typ_ds super_args_g in
+    let methods = Class.methods cls in
+    typ_c = typ_c'
+    && List.length fields = List.length fields'
+    && List.for_all2
+         (fun (typ, name) (typ', name') -> typ = typ' && name = name')
+         fields fields'
+    && List.for_all (fun method' -> isMethodValid method' typ_c) methods
   in
+  List.iter
+    (fun cls ->
+      let typ_c = Class.name cls in
+      if not (isClassValid typ_c) then raise TypeError)
+    classes;
   typeOf' Env.empty exp
 
 let step p = raise NotImplemented
